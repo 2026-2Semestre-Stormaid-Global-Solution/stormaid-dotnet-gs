@@ -8,6 +8,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Stormaid.Domain", "Stormaid
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Stormaid.Infrastructure", "Stormaid.Infrastructure\Stormaid.Infrastructure.csproj", "{E3E7274F-12C5-40E2-930F-63B31ABDA386}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{B15B6116-E3E5-4BEA-B30D-7C9E3CDAC535}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Stormaid.Domain.Tests", "Stormaid.Domain.Tests\Stormaid.Domain.Tests.csproj", "{C085CA90-688C-432A-901F-711C1D695014}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -30,5 +34,12 @@ Global
 		{E3E7274F-12C5-40E2-930F-63B31ABDA386}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E3E7274F-12C5-40E2-930F-63B31ABDA386}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E3E7274F-12C5-40E2-930F-63B31ABDA386}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C085CA90-688C-432A-901F-711C1D695014}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C085CA90-688C-432A-901F-711C1D695014}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C085CA90-688C-432A-901F-711C1D695014}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C085CA90-688C-432A-901F-711C1D695014}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{C085CA90-688C-432A-901F-711C1D695014} = {B15B6116-E3E5-4BEA-B30D-7C9E3CDAC535}
 	EndGlobalSection
 EndGlobal
