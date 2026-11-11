@@ -2,10 +2,12 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Stormaid.Application\Stormaid.Application.csproj" />
+      <ProjectReference Include="..\Stormaid.Domain\Stormaid.Domain.csproj" />
     </ItemGroup>
 
     <ItemGroup>
       <PackageReference Include="Oracle.EntityFrameworkCore" Version="10.23.26400" />
+      <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     </ItemGroup>
 
     <PropertyGroup>
