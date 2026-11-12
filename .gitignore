@@ -5,3 +5,7 @@ riderModule.iml
 /_ReSharper.Caches/
 # JetBrains Rider - configurações pessoais
 *.sln.DotSettings.user
+
+# JetBrains Rider
+.idea/
+
