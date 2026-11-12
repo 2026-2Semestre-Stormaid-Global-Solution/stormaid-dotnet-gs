@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Stormaid.Infrastructure;
+using Stormaid.Application.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,6 +17,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 builder.Services.AddInfrastructure(builder.Configuration);
+
+builder.Services.AddScoped<RescueUnitQueryService>();
 
 var app = builder.Build();
 
