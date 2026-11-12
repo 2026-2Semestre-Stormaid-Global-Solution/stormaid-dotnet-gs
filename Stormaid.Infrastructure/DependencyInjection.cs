@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Stormaid.Infrastructure.Data;
+using Stormaid.Application.Interfaces;
+using Stormaid.Infrastructure.Repositories;
 
 namespace Stormaid.Infrastructure;
 
@@ -20,6 +22,8 @@ public static class DependencyInjection
         {
             options.UseOracle(connectionString);
         });
+        
+        services.AddScoped<IRescueUnitRepository, RescueUnitRepository>();
 
         return services;
     }
