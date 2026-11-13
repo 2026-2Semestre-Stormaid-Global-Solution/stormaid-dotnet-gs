@@ -2,13 +2,12 @@
 using Stormaid.Application.DTOs.Response;
 using Stormaid.Application.Services;
 
-namespace Stormaid.API.Extensions;
-
+namespace Stormaid.API.Controllers;
 /// <summary>
 /// Configuração das rotas para gerenciamento
 /// das unidades de resgate do Storm Aid.
 /// </summary>
-public static class RescueUnitRouteExtensions
+public static class RescueUnitController
 {
     /// <summary>
     /// Registra os endpoints de consulta das unidades de resgate.
