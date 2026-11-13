@@ -20,8 +20,11 @@ public static class RescueUnitController
     /// </returns>
     public static IEndpointRouteBuilder MapRescueUnitRoutes(this IEndpointRouteBuilder app)
     {
+
         var group = app.MapGroup("/api/v1/rescue-units")
-            .WithTags("Unidades de Resgate");
+            .WithTags("Unidades de Resgate")
+            .RequireAuthorization("InstitutionalAccess");
+
 
 
         group.MapGet("/{id:long}", GetByIdAsync)
@@ -35,10 +38,15 @@ public static class RescueUnitController
             .ProducesProblem(
                 StatusCodes.Status400BadRequest)
             .ProducesProblem(
-                StatusCodes.Status404NotFound);
+                StatusCodes.Status404NotFound)
+            .ProducesProblem(
+                StatusCodes.Status401Unauthorized)
+            .ProducesProblem(
+                StatusCodes.Status403Forbidden);
 
-        
-        
+
+
+
         group.MapGet("", GetPagedAsync)
             .WithName("GetRescueUnits")
             .WithSummary("Listar unidades de resgate")
@@ -48,8 +56,11 @@ public static class RescueUnitController
             .Produces<PagedResponse<RescueUnitResponse>>(
                 StatusCodes.Status200OK)
             .ProducesProblem(
-                StatusCodes.Status400BadRequest);
-
+                StatusCodes.Status400BadRequest)
+            .ProducesProblem(
+                StatusCodes.Status401Unauthorized)
+            .ProducesProblem(
+                StatusCodes.Status403Forbidden);
 
         return app;
     }
