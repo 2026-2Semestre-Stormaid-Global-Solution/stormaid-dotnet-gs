@@ -18,8 +18,7 @@ public static class RescueUnitController
     /// <returns>
     /// Construtor de rotas com os endpoints registrados.
     /// </returns>
-    public static IEndpointRouteBuilder MapRescueUnitRoutes(
-        this IEndpointRouteBuilder app)
+    public static IEndpointRouteBuilder MapRescueUnitRoutes(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/rescue-units")
             .WithTags("Unidades de Resgate");
@@ -32,6 +31,19 @@ public static class RescueUnitController
                 StatusCodes.Status400BadRequest)
             .ProducesProblem(
                 StatusCodes.Status404NotFound);
+        
+        
+        group.MapGet("", GetPagedAsync)
+            .WithName("GetRescueUnits")
+            .WithSummary("Listar unidades de resgate")
+            .WithDescription(
+                "Consulta as unidades de resgate com paginação."
+            )
+            .Produces<PagedResponse<RescueUnitResponse>>(
+                StatusCodes.Status200OK)
+            .ProducesProblem(
+                StatusCodes.Status400BadRequest);
+
 
         return app;
     }
@@ -80,4 +92,76 @@ public static class RescueUnitController
                 statusCode: StatusCodes.Status404NotFound)
             : Results.Ok(unit);
     }
+    
+    /// <summary>
+    /// Lista as unidades de resgate com paginação.
+    /// </summary>
+    /// <param name="page">
+    /// Número da página solicitada, iniciando em 1.
+    /// </param>
+    /// <param name="pageSize">
+    /// Quantidade de unidades por página, entre 1 e 100.
+    /// </param>
+    /// <param name="service">
+    /// Serviço responsável pela consulta das unidades de resgate.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Token de cancelamento da requisição.
+    /// </param>
+    /// <returns>
+    /// Lista paginada das unidades de resgate.
+    /// </returns>
+    /// <response code="200">
+    /// Unidades consultadas com sucesso.
+    /// </response>
+    /// <response code="400">
+    /// Parâmetros de paginação inválidos.
+    /// </response>
+    private static async Task<IResult> GetPagedAsync(
+        int? page,
+        int? pageSize,
+        RescueUnitQueryService service,
+        CancellationToken cancellationToken)
+    {
+        var currentPage = page ?? 1;
+        var currentPageSize = pageSize ?? 10;
+
+        if (currentPage < 1)
+        {
+            return Results.Problem(
+                title: "Página inválida.",
+                detail: "A página deve ser maior ou igual a 1.",
+                statusCode: StatusCodes.Status400BadRequest
+            );
+        }
+
+        if (currentPageSize is < 1 or > 100)
+        {
+            return Results.Problem(
+                title: "Tamanho de página inválido.",
+                detail: "A quantidade de registros deve estar entre 1 e 100.",
+                statusCode: StatusCodes.Status400BadRequest
+            );
+        }
+
+        var offset = ((long)currentPage - 1) * currentPageSize;
+
+        if (offset > int.MaxValue)
+        {
+            return Results.Problem(
+                title: "Página fora do limite.",
+                detail: "A página solicitada excede o limite permitido.",
+                statusCode: StatusCodes.Status400BadRequest
+            );
+        }
+
+        var result = await service.GetPagedAsync(
+            currentPage,
+            currentPageSize,
+            cancellationToken
+        );
+
+        return Results.Ok(result);
+    }
+
 }
