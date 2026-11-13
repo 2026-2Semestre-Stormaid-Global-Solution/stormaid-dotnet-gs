@@ -23,14 +23,20 @@ public static class RescueUnitController
         var group = app.MapGroup("/api/v1/rescue-units")
             .WithTags("Unidades de Resgate");
 
+
         group.MapGet("/{id:long}", GetByIdAsync)
             .WithName("GetRescueUnitById")
+            .WithSummary("Consultar unidade de resgate por ID")
+            .WithDescription(
+                "Busca uma unidade de resgate pelo identificador informado."
+            )
             .Produces<RescueUnitResponse>(
                 StatusCodes.Status200OK)
             .ProducesProblem(
                 StatusCodes.Status400BadRequest)
             .ProducesProblem(
                 StatusCodes.Status404NotFound);
+
         
         
         group.MapGet("", GetPagedAsync)
