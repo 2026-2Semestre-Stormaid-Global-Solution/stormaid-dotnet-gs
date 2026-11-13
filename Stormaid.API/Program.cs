@@ -1,11 +1,12 @@
 using System.Text.Json.Serialization;
-using Stormaid.Infrastructure;
-using Stormaid.Application.Services;
+using Stormaid.API.Configurations;
 using Stormaid.API.Controllers;
+using Stormaid.Application.Services;
+using Stormaid.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddOpenApi();
+builder.Services.AddStormaidOpenApi();
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -21,6 +22,8 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 builder.Services.AddScoped<RescueUnitQueryService>();
 
+builder.Services.AddStormaidJwt(builder.Configuration);
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -31,10 +34,13 @@ if (app.Environment.IsDevelopment())
     {
         options.DocumentPath = "/openapi/v1.json";
     });
-
-    app.MapRescueUnitRoutes();
 }
 
 app.UseHttpsRedirection();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapRescueUnitRoutes();
 
 app.Run();
