@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Stormaid.Infrastructure;
 using Stormaid.Application.Services;
+using Stormaid.API.Controllers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +31,8 @@ if (app.Environment.IsDevelopment())
     {
         options.DocumentPath = "/openapi/v1.json";
     });
+
+    app.MapRescueUnitRoutes();
 }
 
 app.UseHttpsRedirection();
