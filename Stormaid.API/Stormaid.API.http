@@ -1,6 +1,0 @@
-@Stormaid.API_HostAddress = http://localhost:5283
-
-GET {{Stormaid.API_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
