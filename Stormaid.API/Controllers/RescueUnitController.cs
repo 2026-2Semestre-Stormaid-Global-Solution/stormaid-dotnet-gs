@@ -1,6 +1,7 @@
-
 using Stormaid.Application.DTOs.Response;
 using Stormaid.Application.Services;
+using Stormaid.Application.DTOs.Request;
+using Stormaid.Application.Exceptions;
 
 namespace Stormaid.API.Controllers;
 /// <summary>
@@ -60,6 +61,28 @@ public static class RescueUnitController
                 StatusCodes.Status403Forbidden)
             .ProducesProblem(
                 StatusCodes.Status429TooManyRequests);
+        
+        
+        group.MapPost("", CreateAsync)
+            .WithName("CreateRescueUnit")
+            .WithSummary("Cadastrar unidade de resgate")
+            .WithDescription(
+                "Permite cadastrar uma unidade institucional de resgate.")
+            .RequireAuthorization(policy =>
+                policy.RequireRole("REGULATOR"))
+            .Produces<RescueUnitResponse>(
+                StatusCodes.Status201Created)
+            .ProducesProblem(
+                StatusCodes.Status400BadRequest)
+            .ProducesProblem(
+                StatusCodes.Status401Unauthorized)
+            .ProducesProblem(
+                StatusCodes.Status403Forbidden)
+            .ProducesProblem(
+                StatusCodes.Status409Conflict)
+            .ProducesProblem(
+                StatusCodes.Status429TooManyRequests);
+
 
         return app;
     }
@@ -185,5 +208,52 @@ public static class RescueUnitController
 
         return Results.Ok(result);
     }
+    
+    
+    /// <summary>
+    /// Cadastra uma nova unidade institucional de resgate.
+    /// </summary>
+    /// <param name="request">Dados do cadastro.</param>
+    /// <param name="service">Serviço de cadastro de unidades.</param>
+    /// <param name="cancellationToken">
+    /// Token de cancelamento da requisição.
+    /// </param>
+    /// <returns>Resultado da operação de cadastro.</returns>
+    private static async Task<IResult> CreateAsync(
+        CreateRescueUnitRequest request,
+        RescueUnitCommandService service,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var createdUnit = await service.CreateAsync(
+                request,
+                cancellationToken
+            );
+
+            return Results.CreatedAtRoute(
+                routeName: "GetRescueUnitById",
+                routeValues: new { id = createdUnit.Id },
+                value: createdUnit
+            );
+        }
+        catch (RescueUnitCodeAlreadyExistsException ex)
+        {
+            return Results.Problem(
+                title: "Código de unidade duplicado.",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status409Conflict
+            );
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.Problem(
+                title: "Dados inválidos.",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status400BadRequest
+            );
+        }
+    }
+
 
 }
