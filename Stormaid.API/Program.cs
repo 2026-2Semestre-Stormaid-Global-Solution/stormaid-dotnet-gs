@@ -30,6 +30,9 @@ builder.Services.AddStormaidRateLimiting();
 
 builder.Services.AddStormaidHealthChecks();
 
+builder.Services.AddScoped<RescueUnitQueryService>();
+builder.Services.AddScoped<RescueUnitCommandService>();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
