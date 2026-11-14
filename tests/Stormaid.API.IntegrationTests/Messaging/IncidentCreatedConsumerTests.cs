@@ -1,4 +1,3 @@
-
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -9,6 +8,7 @@ using Stormaid.API.Messaging;
 using Stormaid.Application.Interfaces;
 using Stormaid.Application.Services;
 using Stormaid.Domain.Entities;
+using Stormaid.Domain.Enums;
 using Stormaid.Infrastructure.Messaging;
 
 namespace Stormaid.API.IntegrationTests.Messaging;
@@ -196,7 +196,6 @@ public sealed class IncidentCreatedConsumerTests
         );
     }
 
-
     [Fact]
     public async Task ShouldRejectAfterThreeDatabaseFailures()
     {
@@ -251,7 +250,6 @@ public sealed class IncidentCreatedConsumerTests
         );
     }
 
-
     private static ServiceProvider CreateServices(
         FakeIncidentReferenceRepository repository
     )
@@ -305,6 +303,27 @@ public sealed class IncidentCreatedConsumerTests
                     : null;
 
             return Task.FromResult(existing);
+        }
+
+        public Task<IReadOnlyList<IncidentReference>> GetPagedAsync(
+            RegulationStatus? status,
+            int page,
+            int pageSize,
+            CancellationToken cancellationToken = default
+        )
+        {
+            IReadOnlyList<IncidentReference> incidents =
+                Array.Empty<IncidentReference>();
+
+            return Task.FromResult(incidents);
+        }
+
+        public Task<int> CountAsync(
+            RegulationStatus? status,
+            CancellationToken cancellationToken = default
+        )
+        {
+            return Task.FromResult(0);
         }
 
         public Task AddAsync(
