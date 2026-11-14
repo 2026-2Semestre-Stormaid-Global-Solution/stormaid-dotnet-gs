@@ -29,6 +29,8 @@ public static class DependencyInjection
         });
         
         services.AddScoped<IRescueUnitRepository, RescueUnitRepository>();
+        
+        services.AddScoped<IIncidentReferenceRepository, IncidentReferenceRepository>();
 
         return services;
     }
