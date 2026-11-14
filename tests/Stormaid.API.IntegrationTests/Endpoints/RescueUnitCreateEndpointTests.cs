@@ -1,10 +1,10 @@
-
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Stormaid.API.IntegrationTests.Factories;
 using Stormaid.API.IntegrationTests.Helpers;
+using System.Net.Http.Json;
 
 namespace Stormaid.API.IntegrationTests.Endpoints;
 
@@ -97,4 +97,45 @@ public sealed class RescueUnitCreateEndpointTests
             "application/json"
         );
     }
+    
+    
+    [Theory]
+    [InlineData(0)]
+    [InlineData(51)]
+    public async Task CreateRescueUnit_ShouldReturn400_WhenCapacityIsInvalid(
+        int capacity)
+    {
+        // Arrange
+        using var client = CreateClient();
+
+        var token = JwtTokenFactory.CreateToken(
+            secret: JwtTokenFactory.TestSecret,
+            role: "REGULATOR"
+        );
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", token);
+
+        var request = new
+        {
+            unitCode = "SA-FD-INVALID",
+            displayName = "Unidade com Capacidade Inválida",
+            institutionType = "FIRE_DEPARTMENT",
+            capacity,
+            supportsAccessibleTransport = true
+        };
+
+        // Act
+        using var response = await client.PostAsJsonAsync(
+            Endpoint,
+            request
+        );
+
+        // Assert
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            response.StatusCode
+        );
+    }
+
 }
