@@ -196,6 +196,62 @@ public sealed class IncidentCreatedConsumerTests
         );
     }
 
+
+    [Fact]
+    public async Task ShouldRejectAfterThreeDatabaseFailures()
+    {
+        var repository = new FakeIncidentReferenceRepository
+        {
+            FailuresRemaining = 3
+        };
+
+        using var services = CreateServices(repository);
+
+        var consumer = CreateConsumer(services);
+        var channel = new Mock<IChannel>();
+
+        channel
+            .Setup(x => x.BasicNackAsync(
+                40UL,
+                false,
+                false,
+                It.IsAny<CancellationToken>()
+            ))
+            .Returns(ValueTask.CompletedTask);
+
+        var payload = Encoding.UTF8.GetBytes(ValidPayload);
+
+        await consumer.ProcessDeliveryAsync(
+            channel.Object,
+            payload,
+            40UL,
+            CancellationToken.None
+        );
+
+        Assert.Equal(3, repository.InsertAttempts);
+        Assert.Null(repository.PersistedIncident);
+
+        channel.Verify(
+            x => x.BasicNackAsync(
+                40UL,
+                false,
+                false,
+                It.IsAny<CancellationToken>()
+            ),
+            Times.Once
+        );
+
+        channel.Verify(
+            x => x.BasicAckAsync(
+                It.IsAny<ulong>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()
+            ),
+            Times.Never
+        );
+    }
+
+
     private static ServiceProvider CreateServices(
         FakeIncidentReferenceRepository repository
     )
