@@ -1,4 +1,3 @@
-
 using Stormaid.Application.DTOs.Integration;
 using Stormaid.Application.Interfaces;
 using Stormaid.Application.Services;
@@ -13,7 +12,6 @@ namespace Stormaid.API.IntegrationTests.Services;
 public sealed class IncidentCreatedEventServiceTests
 {
     // 1 - Processamento de uma ocorrência válida
-
     [Fact]
     public async Task ProcessAsync_ShouldCreateIncident_WhenEventIsValid()
     {
@@ -32,7 +30,6 @@ public sealed class IncidentCreatedEventServiceTests
     }
 
     // 2 - Evento duplicado não deve gerar nova inserção
-
     [Fact]
     public async Task ProcessAsync_ShouldNotDuplicateExistingIncident()
     {
@@ -48,7 +45,6 @@ public sealed class IncidentCreatedEventServiceTests
     }
 
     // 3 - Identificador inválido deve ser rejeitado
-
     [Fact]
     public async Task ProcessAsync_ShouldRejectInvalidIncidentId()
     {
@@ -68,7 +64,6 @@ public sealed class IncidentCreatedEventServiceTests
     }
 
     // 4 - Localização inválida deve ser rejeitada
-
     [Fact]
     public async Task ProcessAsync_ShouldRejectInvalidLatitude()
     {
@@ -91,7 +86,6 @@ public sealed class IncidentCreatedEventServiceTests
     }
 
     // 5 - Dados válidos utilizados nos testes
-
     private static IncidentCreatedEvent CreateValidEvent()
     {
         return new IncidentCreatedEvent(
@@ -137,13 +131,13 @@ public sealed class IncidentCreatedEventServiceTests
     }
 
     // 6 - Repositório simulado para isolar o Oracle
-
     private sealed class FakeIncidentReferenceRepository
         : IIncidentReferenceRepository
     {
         private readonly Dictionary<long, IncidentReference> _incidents = new();
 
         public int InsertCount { get; private set; }
+
         public bool SimulateDatabaseFailure { get; set; }
 
         public Task<IncidentReference?> GetByIdAsync(
@@ -164,6 +158,25 @@ public sealed class IncidentCreatedEventServiceTests
             _incidents.TryGetValue(javaIncidentId, out var incident);
 
             return Task.FromResult(incident);
+        }
+
+        public Task<IReadOnlyList<IncidentReference>> GetPagedAsync(
+            RegulationStatus? status,
+            int page,
+            int pageSize,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<IncidentReference> incidents =
+                Array.Empty<IncidentReference>();
+
+            return Task.FromResult(incidents);
+        }
+
+        public Task<int> CountAsync(
+            RegulationStatus? status,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(0);
         }
 
         public Task AddAsync(
