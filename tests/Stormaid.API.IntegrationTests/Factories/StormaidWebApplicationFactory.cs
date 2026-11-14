@@ -1,16 +1,44 @@
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Stormaid.API.Messaging;
 
 namespace Stormaid.API.IntegrationTests.Factories;
 
-/// <summary>
-/// Configura o ambiente utilizado pelos testes
-/// de integração da API Storm Aid.
-/// </summary>
 public sealed class StormaidWebApplicationFactory
     : WebApplicationFactory<Program>
 {
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.ConfigureAppConfiguration((_, configuration) =>
+        {
+            configuration.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["RabbitMQ:Enabled"] = "false"
+                }
+            );
+        });
+
+        builder.ConfigureTestServices(services =>
+        {
+            var registration = services.FirstOrDefault(
+                descriptor =>
+                    descriptor.ServiceType == typeof(IHostedService) &&
+                    descriptor.ImplementationType ==
+                    typeof(IncidentCreatedConsumer)
+            );
+
+            if (registration is not null)
+            {
+                services.Remove(registration);
+            }
+        });
+    }
+
     protected override IHost CreateHost(IHostBuilder builder)
     {
         builder.ConfigureHostConfiguration(configuration =>
@@ -22,7 +50,8 @@ public sealed class StormaidWebApplicationFactory
                         "User Id=test;Password=test;Data Source=localhost:1521/NOT_USED",
 
                     ["Jwt:Secret"] = new string('x', 32)
-                });
+                }
+            );
         });
 
         return base.CreateHost(builder);
