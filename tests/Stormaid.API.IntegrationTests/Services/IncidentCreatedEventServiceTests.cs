@@ -1,3 +1,4 @@
+
 using Stormaid.Application.DTOs.Integration;
 using Stormaid.Application.Interfaces;
 using Stormaid.Application.Services;
@@ -134,7 +135,8 @@ public sealed class IncidentCreatedEventServiceTests
     private sealed class FakeIncidentReferenceRepository
         : IIncidentReferenceRepository
     {
-        private readonly Dictionary<long, IncidentReference> _incidents = new();
+        private readonly Dictionary<long, IncidentReference> _incidents =
+            new();
 
         public int InsertCount { get; private set; }
 
@@ -177,6 +179,22 @@ public sealed class IncidentCreatedEventServiceTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(0);
+        }
+
+        public Task<IncidentReference?> GetTrackedByJavaIncidentIdAsync(
+            long javaIncidentId,
+            CancellationToken cancellationToken = default)
+        {
+            return GetByJavaIncidentIdAsync(
+                javaIncidentId,
+                cancellationToken
+            );
+        }
+
+        public Task SaveChangesAsync(
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
         }
 
         public Task AddAsync(
