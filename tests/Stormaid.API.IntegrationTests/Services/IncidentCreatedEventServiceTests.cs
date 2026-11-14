@@ -119,6 +119,23 @@ public sealed class IncidentCreatedEventServiceTests
         );
     }
 
+    [Fact]
+    public async Task ProcessAsync_ShouldPropagateError_WhenDatabaseIsUnavailable()
+    {
+        var repository = new FakeIncidentReferenceRepository
+        {
+            SimulateDatabaseFailure = true
+        };
+
+        var service = new IncidentCreatedEventService(repository);
+
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => service.ProcessAsync(CreateValidEvent())
+        );
+
+        Assert.Equal(0, repository.InsertCount);
+    }
+
     // 6 - Repositório simulado para isolar o Oracle
 
     private sealed class FakeIncidentReferenceRepository
@@ -127,6 +144,7 @@ public sealed class IncidentCreatedEventServiceTests
         private readonly Dictionary<long, IncidentReference> _incidents = new();
 
         public int InsertCount { get; private set; }
+        public bool SimulateDatabaseFailure { get; set; }
 
         public Task<IncidentReference?> GetByIdAsync(
             long id,
@@ -153,6 +171,13 @@ public sealed class IncidentCreatedEventServiceTests
             CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(incidentReference);
+
+            if (SimulateDatabaseFailure)
+            {
+                throw new TimeoutException(
+                    "Simulated Oracle database timeout."
+                );
+            }
 
             if (!_incidents.TryAdd(
                     incidentReference.JavaIncidentId,
