@@ -5,6 +5,7 @@ using Stormaid.Application.Services;
 using Stormaid.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Stormaid.API.Health;
+using Stormaid.Infrastructure.Messaging;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +22,12 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 builder.Services.AddInfrastructure(builder.Configuration);
+
+builder.Services.Configure<RabbitMqOptions>(
+    builder.Configuration.GetSection(
+        RabbitMqOptions.SectionName
+    )
+);
 
 builder.Services.AddScoped<RescueUnitQueryService>();
 
