@@ -42,7 +42,7 @@ public static class OpenApiConfiguration
                         };
 
                     foreach (var operation in document.Paths.Values
-                                 .SelectMany(path => path.Operations))
+                                 .SelectMany(path => path.Operations ?? []))
                     {
                         operation.Value.Security ??= [];
 
