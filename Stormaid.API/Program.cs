@@ -54,6 +54,7 @@ builder.Services.AddStormaidHealthChecks();
 builder.Services.AddScoped<RescueUnitQueryService>();
 builder.Services.AddScoped<RescueUnitCommandService>();
 builder.Services.AddScoped<IncidentCreatedEventService>();
+builder.Services.AddScoped<IncidentReferenceQueryService>();
 
 var app = builder.Build();
 
@@ -103,7 +104,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
     ResponseWriter = HealthCheckResponseWriter.WriteJsonResponse
 });
 
-
+app.MapRegulationRoutes();
 
 app.MapRescueUnitRoutes();
 
