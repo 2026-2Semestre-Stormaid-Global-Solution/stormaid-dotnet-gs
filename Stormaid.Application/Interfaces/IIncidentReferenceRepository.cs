@@ -78,4 +78,21 @@ public interface IIncidentReferenceRepository
         CancellationToken cancellationToken = default
     );
 
+    /// <summary>
+    /// Consulta uma ocorrência pelo identificador Java
+    /// mantendo o rastreamento para atualização.
+    /// </summary>
+    Task<IncidentReference?> GetTrackedByJavaIncidentIdAsync(
+        long javaIncidentId,
+        CancellationToken cancellationToken = default
+    );
+
+    /// <summary>
+    /// Persiste as alterações das entidades rastreadas
+    /// no banco de dados.
+    /// </summary>
+    Task SaveChangesAsync(
+        CancellationToken cancellationToken = default
+    );
+
 }
