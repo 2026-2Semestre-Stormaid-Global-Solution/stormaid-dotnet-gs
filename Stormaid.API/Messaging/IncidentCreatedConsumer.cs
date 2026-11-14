@@ -191,7 +191,7 @@ public sealed class IncidentCreatedConsumer : BackgroundService
     /// Processa uma mensagem recebida do RabbitMQ e
     /// confirma ou rejeita a entrega conforme o resultado.
     /// </summary>
-    private async Task ProcessDeliveryAsync(
+    internal async Task ProcessDeliveryAsync(
         IChannel channel,
         byte[] payload,
         ulong deliveryTag,
