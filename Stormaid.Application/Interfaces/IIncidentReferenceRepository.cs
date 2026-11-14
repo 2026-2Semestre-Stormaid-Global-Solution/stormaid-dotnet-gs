@@ -1,4 +1,5 @@
 using Stormaid.Domain.Entities;
+using Stormaid.Domain.Enums;
 
 namespace Stormaid.Application.Interfaces;
 
@@ -31,4 +32,50 @@ public interface IIncidentReferenceRepository
         IncidentReference incidentReference,
         CancellationToken cancellationToken = default
     );
+
+
+    /// <summary>
+    /// Consulta as ocorrências com paginação e filtro
+    /// opcional pelo status de regulação.
+    /// </summary>
+    /// <param name="status">
+    /// Status de regulação utilizado como filtro.
+    /// Quando nulo, consulta todos os status.
+    /// </param>
+    /// <param name="page">
+    /// Número da página, iniciando em zero.
+    /// </param>
+    /// <param name="pageSize">
+    /// Quantidade de registros por página.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Token de cancelamento da consulta.
+    /// </param>
+    /// <returns>
+    /// Lista de ocorrências correspondente à página solicitada.
+    /// </returns>
+    Task<IReadOnlyList<IncidentReference>> GetPagedAsync(
+        RegulationStatus? status,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default
+    );
+
+    /// <summary>
+    /// Conta as ocorrências conforme o filtro de regulação.
+    /// </summary>
+    /// <param name="status">
+    /// Status opcional utilizado na contagem.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Token de cancelamento da consulta.
+    /// </param>
+    /// <returns>
+    /// Quantidade total de ocorrências que atendem ao filtro.
+    /// </returns>
+    Task<int> CountAsync(
+        RegulationStatus? status,
+        CancellationToken cancellationToken = default
+    );
+
 }
