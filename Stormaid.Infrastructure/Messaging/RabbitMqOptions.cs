@@ -47,4 +47,10 @@ public sealed class RabbitMqOptions
     /// Indica se a conexão deve utilizar TLS.
     /// </summary>
     public bool UseTls { get; set; } = false;
+
+    /// <summary>
+    /// Nome do exchange utilizado para eventos
+    /// de atualização de status destinados ao Java.
+    /// </summary>
+    public string StatusExchangeName { get; set; } = "stormaid.events";
 }
