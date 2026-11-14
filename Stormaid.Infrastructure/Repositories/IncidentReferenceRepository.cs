@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Stormaid.Application.Interfaces;
 using Stormaid.Domain.Entities;
 using Stormaid.Infrastructure.Data;
+using Stormaid.Domain.Enums;
 
 namespace Stormaid.Infrastructure.Repositories;
 
@@ -64,4 +65,72 @@ public sealed class IncidentReferenceRepository : IIncidentReferenceRepository
 
         await _context.SaveChangesAsync(cancellationToken);
     }
+
+
+    /// <summary>
+    /// Consulta as ocorrências persistidas no Oracle
+    /// com paginação e filtro opcional de status.
+    /// </summary>
+    public async Task<IReadOnlyList<IncidentReference>> GetPagedAsync(
+        RegulationStatus? status,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        if (page < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(page));
+        }
+
+        if (pageSize is < 1 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pageSize));
+        }
+
+        var offset = (long)page * pageSize;
+
+        if (offset > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(page));
+        }
+
+        var query = _context.IncidentReferences
+            .AsNoTracking();
+
+        if (status.HasValue)
+        {
+            query = query.Where(
+                incident => incident.RegulationStatus == status.Value
+            );
+        }
+
+        return await query
+            .OrderByDescending(incident => incident.ReceivedAt)
+            .ThenByDescending(incident => incident.Id)
+            .Skip((int)offset)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Retorna o total de ocorrências conforme
+    /// o filtro opcional de status.
+    /// </summary>
+    public async Task<int> CountAsync(
+        RegulationStatus? status,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.IncidentReferences
+            .AsNoTracking();
+
+        if (status.HasValue)
+        {
+            query = query.Where(
+                incident => incident.RegulationStatus == status.Value
+            );
+        }
+
+        return await query.CountAsync(cancellationToken);
+    }
+
 }
