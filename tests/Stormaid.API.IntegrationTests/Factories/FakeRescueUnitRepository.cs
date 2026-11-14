@@ -32,4 +32,22 @@ public sealed class FakeRescueUnitRepository : IRescueUnitRepository
     {
         return Task.FromResult(0);
     }
+    
+    public Task<bool> ExistsByUnitCodeAsync(
+        string unitCode,
+        CancellationToken cancellationToken = default)
+    {
+        throw new NotSupportedException(
+            "Este fake suporta apenas operações de consulta."
+        );
+    }
+
+    public Task AddAsync(
+        RescueUnit unit,
+        CancellationToken cancellationToken = default)
+    {
+        throw new NotSupportedException(
+            "Este fake suporta apenas operações de consulta."
+        );
+    }
 }
