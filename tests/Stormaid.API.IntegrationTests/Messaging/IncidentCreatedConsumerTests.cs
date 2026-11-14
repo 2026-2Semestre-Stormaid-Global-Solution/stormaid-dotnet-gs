@@ -69,7 +69,10 @@ public sealed class IncidentCreatedConsumerTests
 
         Assert.True(persistedBeforeAck);
         Assert.NotNull(repository.PersistedIncident);
-        Assert.Equal(150L, repository.PersistedIncident.JavaIncidentId);
+        Assert.Equal(
+            150L,
+            repository.PersistedIncident.JavaIncidentId
+        );
 
         channel.Verify(
             x => x.BasicAckAsync(
@@ -324,6 +327,24 @@ public sealed class IncidentCreatedConsumerTests
         )
         {
             return Task.FromResult(0);
+        }
+
+        public Task<IncidentReference?> GetTrackedByJavaIncidentIdAsync(
+            long javaIncidentId,
+            CancellationToken cancellationToken = default
+        )
+        {
+            return GetByJavaIncidentIdAsync(
+                javaIncidentId,
+                cancellationToken
+            );
+        }
+
+        public Task SaveChangesAsync(
+            CancellationToken cancellationToken = default
+        )
+        {
+            return Task.CompletedTask;
         }
 
         public Task AddAsync(
