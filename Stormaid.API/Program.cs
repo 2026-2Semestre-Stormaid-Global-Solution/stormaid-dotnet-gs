@@ -83,3 +83,11 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 app.MapRescueUnitRoutes();
 
 app.Run();
+
+/// <summary>
+/// Ponto de entrada da API Storm Aid.
+/// Permite a inicialização da aplicação nos testes de integração.
+/// </summary>
+public partial class Program
+{
+}
