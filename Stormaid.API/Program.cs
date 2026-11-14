@@ -3,6 +3,7 @@ using Stormaid.API.Configurations;
 using Stormaid.API.Controllers;
 using Stormaid.Application.Services;
 using Stormaid.Infrastructure;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,6 +27,8 @@ builder.Services.AddStormaidJwt(builder.Configuration);
 
 builder.Services.AddStormaidRateLimiting();
 
+builder.Services.AddStormaidHealthChecks();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -46,6 +49,28 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseRateLimiter();
+
+app.MapGet("/", () => Results.Ok(new
+    {
+        name = "Storm Aid API",
+        version = "v1",
+        description = "API de regulação e operações de resgate."
+    }))
+    .AllowAnonymous()
+    .ExcludeFromDescription();
+
+app.MapHealthChecks("/health");
+
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("live")
+});
+
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
+
 
 app.MapRescueUnitRoutes();
 
