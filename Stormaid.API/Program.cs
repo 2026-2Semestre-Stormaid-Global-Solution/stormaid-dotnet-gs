@@ -24,6 +24,8 @@ builder.Services.AddScoped<RescueUnitQueryService>();
 
 builder.Services.AddStormaidJwt(builder.Configuration);
 
+builder.Services.AddStormaidRateLimiting();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -38,8 +40,12 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseRouting();
+
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.UseRateLimiter();
 
 app.MapRescueUnitRoutes();
 
