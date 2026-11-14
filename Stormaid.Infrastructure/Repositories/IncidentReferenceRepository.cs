@@ -133,4 +133,47 @@ public sealed class IncidentReferenceRepository : IIncidentReferenceRepository
         return await query.CountAsync(cancellationToken);
     }
 
+
+    /// <summary>
+    /// Consulta uma ocorrência pelo identificador Java
+    /// mantendo seu rastreamento para atualizações.
+    /// </summary>
+    /// <param name="javaIncidentId">
+    /// Identificador da ocorrência na API Java.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Token de cancelamento da consulta.
+    /// </param>
+    /// <returns>
+    /// Entidade rastreada ou null quando não encontrada.
+    /// </returns>
+    public async Task<IncidentReference?> GetTrackedByJavaIncidentIdAsync(
+        long javaIncidentId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.IncidentReferences
+            .AsTracking()
+            .FirstOrDefaultAsync(
+                incident => incident.JavaIncidentId == javaIncidentId,
+                cancellationToken
+            );
+    }
+
+    /// <summary>
+    /// Salva as alterações das entidades rastreadas
+    /// no banco de dados Oracle.
+    /// </summary>
+    /// <param name="cancellationToken">
+    /// Token de cancelamento da operação.
+    /// </param>
+    /// <returns>
+    /// Tarefa que representa a persistência.
+    /// </returns>
+    public async Task SaveChangesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+
 }
