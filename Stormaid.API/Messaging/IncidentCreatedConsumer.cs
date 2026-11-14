@@ -150,10 +150,21 @@ public sealed class IncidentCreatedConsumer : BackgroundService
 
                 // 7 - Manter o serviço ativo
 
-                await Task.Delay(
-                    Timeout.InfiniteTimeSpan,
-                    stoppingToken
-                );
+
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    if (connection.IsOpen && channel.IsClosed)
+                    {
+                        throw new InvalidOperationException(
+                            "Canal RabbitMQ encerrado inesperadamente."
+                        );
+                    }
+
+                    await Task.Delay(
+                        TimeSpan.FromSeconds(5),
+                        stoppingToken
+                    );
+                }
             }
             catch (OperationCanceledException)
                 when (stoppingToken.IsCancellationRequested)
