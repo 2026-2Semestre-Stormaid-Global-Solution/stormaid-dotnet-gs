@@ -32,6 +32,7 @@ builder.Services.AddStormaidHealthChecks();
 
 builder.Services.AddScoped<RescueUnitQueryService>();
 builder.Services.AddScoped<RescueUnitCommandService>();
+builder.Services.AddScoped<IncidentCreatedEventService>();
 
 var app = builder.Build();
 
