@@ -20,19 +20,16 @@ public static class RescueUnitController
     /// </returns>
     public static IEndpointRouteBuilder MapRescueUnitRoutes(this IEndpointRouteBuilder app)
     {
-
+        
         var group = app.MapGroup("/api/v1/rescue-units")
             .WithTags("Unidades de Resgate")
-            .RequireAuthorization("InstitutionalAccess");
-
-
+            .RequireAuthorization("InstitutionalAccess")
+            .RequireRateLimiting("InstitutionalApi");
 
         group.MapGet("/{id:long}", GetByIdAsync)
             .WithName("GetRescueUnitById")
             .WithSummary("Consultar unidade de resgate por ID")
-            .WithDescription(
-                "Busca uma unidade de resgate pelo identificador informado."
-            )
+            .WithDescription("Busca uma unidade de resgate pelo identificador informado.")
             .Produces<RescueUnitResponse>(
                 StatusCodes.Status200OK)
             .ProducesProblem(
@@ -42,7 +39,9 @@ public static class RescueUnitController
             .ProducesProblem(
                 StatusCodes.Status401Unauthorized)
             .ProducesProblem(
-                StatusCodes.Status403Forbidden);
+                StatusCodes.Status403Forbidden)
+            .ProducesProblem(
+                StatusCodes.Status429TooManyRequests);
 
 
 
@@ -50,9 +49,7 @@ public static class RescueUnitController
         group.MapGet("", GetPagedAsync)
             .WithName("GetRescueUnits")
             .WithSummary("Listar unidades de resgate")
-            .WithDescription(
-                "Consulta as unidades de resgate com paginação."
-            )
+            .WithDescription("Consulta as unidades de resgate com paginação.")
             .Produces<PagedResponse<RescueUnitResponse>>(
                 StatusCodes.Status200OK)
             .ProducesProblem(
@@ -60,7 +57,9 @@ public static class RescueUnitController
             .ProducesProblem(
                 StatusCodes.Status401Unauthorized)
             .ProducesProblem(
-                StatusCodes.Status403Forbidden);
+                StatusCodes.Status403Forbidden)
+            .ProducesProblem(
+                StatusCodes.Status429TooManyRequests);
 
         return app;
     }
@@ -88,6 +87,9 @@ public static class RescueUnitController
     /// </response>
     /// <response code="404">
     /// Unidade de resgate não encontrada.
+    /// </response>
+    /// <response code="429">
+    /// Limite de requisições excedido.
     /// </response>
     private static async Task<IResult> GetByIdAsync(
         long id,
@@ -133,6 +135,9 @@ public static class RescueUnitController
     /// </response>
     /// <response code="400">
     /// Parâmetros de paginação inválidos.
+    /// </response>
+    /// <response code="429">
+    /// Limite de requisições excedido.
     /// </response>
     private static async Task<IResult> GetPagedAsync(
         int? page,
