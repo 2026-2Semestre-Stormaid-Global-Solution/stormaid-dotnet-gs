@@ -16,6 +16,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="Stormaid.API.IntegrationTests" />
+    </ItemGroup>
+
+    <ItemGroup>
       <ProjectReference Include="..\Stormaid.Application\Stormaid.Application.csproj" />
       <ProjectReference Include="..\Stormaid.Infrastructure\Stormaid.Infrastructure.csproj" />
     </ItemGroup>
