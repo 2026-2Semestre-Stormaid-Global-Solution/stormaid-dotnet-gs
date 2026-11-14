@@ -4,6 +4,7 @@ using Stormaid.API.Controllers;
 using Stormaid.Application.Services;
 using Stormaid.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Stormaid.API.Health;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -59,17 +60,24 @@ app.MapGet("/", () => Results.Ok(new
     .AllowAnonymous()
     .ExcludeFromDescription();
 
-app.MapHealthChecks("/health");
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = HealthCheckResponseWriter.WriteJsonResponse
+});
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {
-    Predicate = check => check.Tags.Contains("live")
+    Predicate = check => check.Tags.Contains("live"),
+    ResponseWriter = HealthCheckResponseWriter.WriteJsonResponse
 });
 
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
-    Predicate = check => check.Tags.Contains("ready")
+    Predicate = check => check.Tags.Contains("ready"),
+    ResponseWriter = HealthCheckResponseWriter.WriteJsonResponse
 });
+
 
 
 app.MapRescueUnitRoutes();
