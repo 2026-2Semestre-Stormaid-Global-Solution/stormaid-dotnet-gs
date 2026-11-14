@@ -19,8 +19,4 @@
       <ProjectReference Include="..\Stormaid.Infrastructure\Stormaid.Infrastructure.csproj" />
     </ItemGroup>
 
-    <ItemGroup>
-      <Folder Include="Configurations\" />
-    </ItemGroup>
-
 </Project>
