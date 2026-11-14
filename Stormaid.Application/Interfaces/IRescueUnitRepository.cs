@@ -18,4 +18,14 @@ public interface IRescueUnitRepository
     Task<int> CountAsync(
         CancellationToken cancellationToken = default
     );
+
+    Task<bool> ExistsByUnitCodeAsync(
+        string unitCode,
+        CancellationToken cancellationToken = default
+    );
+
+    Task AddAsync(
+        RescueUnit unit,
+        CancellationToken cancellationToken = default
+    );
 }
