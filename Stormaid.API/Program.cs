@@ -6,6 +6,7 @@ using Stormaid.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Stormaid.API.Health;
 using Stormaid.Infrastructure.Messaging;
+using Stormaid.API.Messaging;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +29,19 @@ builder.Services.Configure<RabbitMqOptions>(
         RabbitMqOptions.SectionName
     )
 );
+
+builder.Services.Configure<RabbitMqOptions>(
+    builder.Configuration.GetSection(
+        RabbitMqOptions.SectionName
+    )
+);
+
+
+if (builder.Configuration.GetValue<bool>("RabbitMQ:Enabled"))
+{
+    builder.Services.AddHostedService<IncidentCreatedConsumer>();
+}
+
 
 builder.Services.AddScoped<RescueUnitQueryService>();
 
