@@ -20,7 +20,12 @@ public static class DependencyInjection
 
         services.AddDbContext<StormaidDbContext>(options =>
         {
-            options.UseOracle(connectionString);
+            options.UseOracle(
+                connectionString,
+                oracleOptions => oracleOptions.UseOracleSQLCompatibility(
+                    OracleSQLCompatibility.DatabaseVersion19
+                )
+            );
         });
         
         services.AddScoped<IRescueUnitRepository, RescueUnitRepository>();
