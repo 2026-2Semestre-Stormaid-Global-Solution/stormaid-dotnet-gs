@@ -1,5 +1,4 @@
 
-using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
@@ -153,8 +152,13 @@ public sealed class RegulationReviewEndpointTests
 
         using var client = CreateClient(
             factory,
-            CreateJwt(subject: "901", userId: 901)
+            CreateJwt(
+                subject: "901",
+                userId: 901
+            )
         );
+
+        // 1 - Primeiro regulador inicia a análise.
 
         using var firstResponse = await client.PostAsync(
             ReviewPath,
@@ -172,10 +176,15 @@ public sealed class RegulationReviewEndpointTests
         var originalVersion =
             incident.PublicStatusVersion;
 
+        // 2 - Segundo regulador repete a solicitação.
+
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue(
                 "Bearer",
-                CreateJwt(subject: "902", userId: 902)
+                CreateJwt(
+                    subject: "902",
+                    userId: 902
+                )
             );
 
         using var secondResponse = await client.PostAsync(
@@ -191,6 +200,8 @@ public sealed class RegulationReviewEndpointTests
         using var json = JsonDocument.Parse(
             await secondResponse.Content.ReadAsStringAsync()
         );
+
+        // 3 - A autoria deve permanecer com o regulador 901.
 
         Assert.Equal(
             901L,
@@ -213,6 +224,99 @@ public sealed class RegulationReviewEndpointTests
             901L,
             incident.ReviewedByRegulatorUserId
         );
+
+        // 4 - A persistência e a Outbox devem
+        // ser executadas apenas uma vez.
+
+        repository.Verify(
+            x => x.SaveChangesAsync(
+                It.IsAny<CancellationToken>()
+            ),
+            Times.Once
+        );
+
+        outbox.Verify(
+            x => x.EnqueueAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()
+            ),
+            Times.Once
+        );
+    }
+
+    /// <summary>
+    /// Verifica o contrato real do JWT emitido pela API Java,
+    /// utilizando e-mail no subject e ID numérico em userId.
+    /// </summary>
+    [Fact]
+    public async Task BeginReview_ShouldReturn200_WhenSubjectIsEmail()
+    {
+        var incident = CreateIncident();
+
+        using var factory = CreateFactory(
+            incident,
+            out var repository,
+            out var outbox
+        );
+
+        using var client = CreateClient(
+            factory,
+            CreateJwt(
+                subject: "teste.integracao@stormaid.local",
+                userId: 1,
+                role: "REGULATOR"
+            )
+        );
+
+        using var response = await client.PostAsync(
+            ReviewPath,
+            null
+        );
+
+        // 1 - O contrato do JWT Java deve ser aceito.
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            response.StatusCode
+        );
+
+        // 2 - O regulador deve ser identificado
+        // pela claim userId e não pelo e-mail.
+
+        Assert.Equal(
+            1L,
+            incident.ReviewedByRegulatorUserId
+        );
+
+        Assert.Equal(
+            RegulationStatus.UNDER_REVIEW,
+            incident.RegulationStatus
+        );
+
+        Assert.NotNull(incident.ReviewStartedAt);
+
+        Assert.Equal(
+            1L,
+            incident.PublicStatusVersion
+        );
+
+        // 3 - A resposta deve apresentar o regulador original.
+
+        using var json = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync()
+        );
+
+        Assert.Equal(
+            1L,
+            json.RootElement.GetProperty(
+                "reviewedByRegulatorUserId"
+            ).GetInt64()
+        );
+
+        // 4 - Garantir uma gravação e um evento.
 
         repository.Verify(
             x => x.SaveChangesAsync(
@@ -309,7 +413,6 @@ public sealed class RegulationReviewEndpointTests
     /// </summary>
     [Theory]
     [InlineData("901", 902L)]
-    [InlineData("integration-test@example.com", 901L)]
     [InlineData("0", 901L)]
     [InlineData("901", null)]
     public async Task BeginReview_ShouldReturn403_WhenIdentityIsInvalid(
@@ -565,8 +668,11 @@ public sealed class RegulationReviewEndpointTests
     }
 
     /// <summary>
-    /// Cria um JWT com o contrato institucional
-    /// esperado pela API .NET e emitido pela API Java.
+    /// Cria um JWT para os testes respeitando
+    /// os campos de identidade esperados pela API .NET.
+    ///
+    /// O subject pode ser um identificador numérico
+    /// ou um e-mail, conforme o contrato da API Java.
     /// </summary>
     private static string CreateJwt(
         string subject = "901",
