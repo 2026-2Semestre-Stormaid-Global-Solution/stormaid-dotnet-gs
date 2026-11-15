@@ -217,18 +217,14 @@ public static class RegulationController
             );
         }
 
-        // 2 - Validar a identidade institucional
-        // presente no JWT autenticado.
+        // 2 - Obter a identidade institucional
+        // a partir das claims do JWT validado.
 
         var subject = user.FindFirst("sub")?.Value;
         var userIdClaim = user.FindFirst("userId")?.Value;
 
-        var validSubject = long.TryParse(
-            subject,
-            NumberStyles.None,
-            CultureInfo.InvariantCulture,
-            out var subjectId
-        );
+        // 3 - Validar o identificador numérico
+        // do regulador recebido pela API Java.
 
         var validUserId = long.TryParse(
             userIdClaim,
@@ -237,22 +233,38 @@ public static class RegulationController
             out var regulatorUserId
         );
 
-        if (!validSubject ||
+        // 4 - Permitir subject em formato de e-mail,
+        // conforme o contrato JWT atual do Java.
+        //
+        // Se o subject for numérico, exigir que ele
+        // corresponda ao identificador userId.
+
+        var hasNumericSubject = long.TryParse(
+            subject,
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out var subjectId
+        );
+
+        // 5 - Rejeitar identidades ausentes,
+        // inválidas ou numericamente inconsistentes.
+
+        if (string.IsNullOrWhiteSpace(subject) ||
             !validUserId ||
             regulatorUserId <= 0 ||
-            subjectId != regulatorUserId)
+            (hasNumericSubject && subjectId != regulatorUserId))
         {
             return Results.Problem(
                 title: "Identidade institucional inválida.",
                 detail:
                     "O token autenticado não contém " +
-                    "identificadores institucionais consistentes.",
+                    "uma identidade institucional válida.",
                 statusCode: StatusCodes.Status403Forbidden
             );
         }
 
-        // 3 - Executar a análise e tratar
-        // os resultados de domínio.
+        // 6 - Executar a análise institucional
+        // e tratar os resultados de domínio.
 
         try
         {
@@ -262,12 +274,13 @@ public static class RegulationController
                 cancellationToken
             );
 
-            // 4 - Retornar sempre o regulador original,
-            // inclusive nas requisições idempotentes.
+            // 7 - Retornar o regulador original,
+            // inclusive nas solicitações idempotentes.
 
             var response = new RegulationReviewResponse(
                 JavaIncidentId: result.JavaIncidentId,
-                RegulationStatus: result.RegulationStatus.ToString(),
+                RegulationStatus:
+                    result.RegulationStatus.ToString(),
                 ReviewedByRegulatorUserId:
                     result.ReviewedByRegulatorUserId
             );
@@ -284,16 +297,6 @@ public static class RegulationController
                 statusCode: StatusCodes.Status404NotFound
             );
         }
-        catch (InvalidOperationException)
-        {
-            return Results.Problem(
-                title: "Transição de status não permitida.",
-                detail:
-                    "O estado atual da ocorrência não permite " +
-                    "iniciar uma nova análise.",
-                statusCode: StatusCodes.Status409Conflict
-            );
-        }
         catch (DbUpdateConcurrencyException)
         {
             return Results.Problem(
@@ -301,6 +304,16 @@ public static class RegulationController
                 detail:
                     "A ocorrência foi modificada por outra " +
                     "operação. Consulte seu estado atualizado.",
+                statusCode: StatusCodes.Status409Conflict
+            );
+        }
+        catch (InvalidOperationException)
+        {
+            return Results.Problem(
+                title: "Transição de status não permitida.",
+                detail:
+                    "O estado atual da ocorrência não permite " +
+                    "iniciar uma nova análise.",
                 statusCode: StatusCodes.Status409Conflict
             );
         }
