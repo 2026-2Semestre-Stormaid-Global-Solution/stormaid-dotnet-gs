@@ -490,4 +490,140 @@ public sealed class IncidentDispatchCommandService
             },
             cancellationToken);
     }
+
+    /// <summary>
+    /// Conclui o atendimento, libera a unidade e publica RESOLVED no Java.
+    /// A regulação é encerrada internamente como CLOSED.
+    /// </summary>
+    public async Task<IncidentDispatchResponse> ResolveAsync(
+        long dispatchId,
+        long responderUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (dispatchId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dispatchId));
+        }
+
+        if (responderUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(responderUserId));
+        }
+
+        return await _transactionExecutor.ExecuteAsync(
+            async token =>
+            {
+                var dispatch = await _dispatchRepository.GetTrackedByIdAsync(
+                    dispatchId,
+                    token);
+
+                if (dispatch is null)
+                {
+                    throw new KeyNotFoundException("Dispatch was not found.");
+                }
+
+                if (dispatch.AcceptedByResponderUserId != responderUserId)
+                {
+                    throw new UnauthorizedAccessException(
+                        "Responder did not accept this dispatch.");
+                }
+
+                var assigned = await _dispatchRepository.HasActiveAssignmentAsync(
+                    dispatch.RescueUnitId,
+                    responderUserId,
+                    token);
+
+                if (!assigned)
+                {
+                    throw new UnauthorizedAccessException(
+                        "Responder is not actively assigned to this rescue unit.");
+                }
+
+                // A repetição não libera novamente a unidade nem recria histórico ou evento.
+                if (dispatch.Status == DispatchStatus.RESOLVED)
+                {
+                    return IncidentDispatchResponse.FromEntity(dispatch);
+                }
+
+                if (dispatch.Status != DispatchStatus.ON_SITE)
+                {
+                    throw new InvalidOperationException(
+                        "Dispatch is not on site.");
+                }
+
+                var incident = await _incidentRepository.GetTrackedByIdAsync(
+                    dispatch.IncidentReferenceId,
+                    token);
+
+                if (incident is null)
+                {
+                    throw new KeyNotFoundException("Incident was not found.");
+                }
+
+                if (incident.RegulationStatus != RegulationStatus.DISPATCHED)
+                {
+                    throw new InvalidOperationException(
+                        "Incident is not dispatched.");
+                }
+
+                var unit = await _rescueUnitRepository.GetTrackedByIdAsync(
+                    dispatch.RescueUnitId,
+                    token);
+
+                if (unit is null)
+                {
+                    throw new KeyNotFoundException("Rescue unit was not found.");
+                }
+
+                // Não reativar inadvertidamente unidades inativas ou fora de serviço.
+                if (!unit.Active ||
+                    unit.OperationalStatus != UnitOperationalStatus.BUSY)
+                {
+                    throw new InvalidOperationException(
+                        "Rescue unit is not active and busy.");
+                }
+
+                var utcNow = DateTime.UtcNow;
+                var previousStatus = dispatch.Status;
+
+                dispatch.Resolve(utcNow);
+                incident.Close(utcNow);
+                incident.AdvancePublicStatusVersion(utcNow);
+                unit.MarkAsAvailable(utcNow);
+
+                var history = new DispatchStatusHistory(
+                    incidentDispatchId: dispatch.Id,
+                    previousStatus: previousStatus,
+                    newStatus: DispatchStatus.RESOLVED,
+                    changedByUserId: responderUserId,
+                    changedByRole: DispatchActorRole.RESPONDER,
+                    note: "Atendimento concluído pela equipe de resgate.",
+                    utcNow: utcNow);
+
+                await _dispatchRepository.AddHistoryAsync(history, token);
+
+                // RESOLVED é o status público; CLOSED é apenas o estado interno .NET.
+                var eventId = $"evt-dispatch-{incident.JavaIncidentId}-{incident.PublicStatusVersion}";
+                var payload = JsonSerializer.Serialize(new
+                {
+                    eventType = StatusChangedEventType,
+                    eventId,
+                    incidentId = incident.JavaIncidentId,
+                    status = DispatchStatus.RESOLVED.ToString(),
+                    version = incident.PublicStatusVersion,
+                    changedAt = utcNow
+                });
+
+                await _outbox.EnqueueAsync(
+                    eventId: eventId,
+                    eventType: StatusChangedEventType,
+                    routingKey: StatusChangedEventType,
+                    payload: payload,
+                    cancellationToken: token);
+
+                // O executor confirma despacho, ocorrência, unidade, histórico e Outbox juntos.
+                return IncidentDispatchResponse.FromEntity(dispatch);
+            },
+            cancellationToken);
+    }
 }
