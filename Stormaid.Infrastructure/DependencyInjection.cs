@@ -5,6 +5,7 @@ using Stormaid.Application.Interfaces;
 using Stormaid.Infrastructure.Data;
 using Stormaid.Infrastructure.Messaging;
 using Stormaid.Infrastructure.Repositories;
+using Stormaid.Infrastructure.Transactions;
 
 namespace Stormaid.Infrastructure;
 
@@ -46,19 +47,27 @@ public static class DependencyInjection
         services.AddScoped<
             IIntegrationEventOutbox,
             IntegrationEventOutbox>();
-        
+
         services.AddScoped<
             IOutboxEventPublisher,
             RabbitMqOutboxPublisher>();
 
         services.AddScoped<
+            IIncidentDispatchRepository,
+            IncidentDispatchRepository>();
+
+        services.AddScoped<
+            ITransactionExecutor,
+            OracleTransactionExecutor>();
+
+        services.AddScoped<
             IRescueUnitRepository,
             RescueUnitRepository>();
-        
+
         services.AddScoped<
             IOutboxMessageRepository,
             OutboxMessageRepository>();
-        
+
         services.AddScoped<
             IRegulationDecisionRepository,
             RegulationDecisionRepository>();
