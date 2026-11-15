@@ -124,6 +124,20 @@ public class IncidentReference : Entity
         );
     }
 
+
+    public void RequestMoreInformation(DateTime utcNow)
+    {
+        if (RegulationStatus != RegulationStatus.UNDER_REVIEW)
+        {
+            throw new InvalidOperationException(
+                "Incident must be under review to request more information.");
+        }
+
+        ValidateUpdateTime(utcNow);
+        Touch(utcNow);
+    }
+
+
     public void MarkDispatched(DateTime utcNow)
     {
         TransitionTo(
