@@ -8,6 +8,11 @@ public interface IRescueUnitRepository
         long id,
         CancellationToken cancellationToken = default
     );
+    
+    Task<RescueUnit?> GetTrackedByIdAsync(
+        long id,
+        CancellationToken cancellationToken = default
+    );
 
     Task<IReadOnlyList<RescueUnit>> GetPagedAsync(
         int page,
