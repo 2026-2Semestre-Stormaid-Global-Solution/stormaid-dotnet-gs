@@ -19,6 +19,10 @@ public class IncidentReference : Entity
 
     public RegulationStatus RegulationStatus { get; private set; }
 
+    public long? ReviewedByRegulatorUserId { get; private set; }
+
+    public DateTime? ReviewStartedAt { get; private set; }
+
     public long PublicStatusVersion { get; private set; }
 
     public DateTime ReceivedAt { get; private set; }
@@ -87,6 +91,28 @@ public class IncidentReference : Entity
             RegulationStatus.UNDER_REVIEW,
             utcNow
         );
+    }
+
+    public void BeginReview(
+        long regulatorUserId,
+        DateTime utcNow)
+    {
+        ValidateId(
+            regulatorUserId,
+            nameof(regulatorUserId)
+        );
+
+        if (RegulationStatus == RegulationStatus.UNDER_REVIEW)
+            return;
+
+        TransitionTo(
+            RegulationStatus.PENDING_REVIEW,
+            RegulationStatus.UNDER_REVIEW,
+            utcNow
+        );
+
+        ReviewedByRegulatorUserId = regulatorUserId;
+        ReviewStartedAt = utcNow;
     }
 
     public void AwaitDispatch(DateTime utcNow)
