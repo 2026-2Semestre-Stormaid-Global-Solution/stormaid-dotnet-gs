@@ -154,10 +154,13 @@ public sealed class RegulationDecisionCommandService
                 eventType = StatusChangedEventType,
                 eventId,
                 incidentId = javaIncidentId,
-                status = incident.RegulationStatus.ToString(),
+                status = incident.RegulationStatus == RegulationStatus.CLOSED
+                    ? "CLOSED_NO_DISPATCH"
+                    : incident.RegulationStatus.ToString(),
                 version = incident.PublicStatusVersion,
                 changedAt = utcNow
             });
+
 
             await _outbox.EnqueueAsync(
                 eventId: eventId,
