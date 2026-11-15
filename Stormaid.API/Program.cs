@@ -106,6 +106,8 @@ app.MapRegulationRoutes();
 
 app.MapRescueUnitRoutes();
 
+app.MapCitizenIncidentTrackingRoutes();
+
 app.MapIncidentDispatchRoutes();
 
 app.Run();
