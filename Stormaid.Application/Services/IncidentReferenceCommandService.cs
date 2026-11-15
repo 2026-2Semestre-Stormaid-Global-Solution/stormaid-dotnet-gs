@@ -109,7 +109,7 @@ public sealed class IncidentReferenceCommandService
 
         var utcNow = DateTime.UtcNow;
 
-        incident.BeginReview(utcNow);
+        incident.BeginReview(regulatorUserId, utcNow);
         incident.AdvancePublicStatusVersion(utcNow);
 
         var eventId =
