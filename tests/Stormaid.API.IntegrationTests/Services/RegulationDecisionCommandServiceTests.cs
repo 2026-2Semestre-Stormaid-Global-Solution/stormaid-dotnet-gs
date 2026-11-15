@@ -1,4 +1,3 @@
-
 using Moq;
 using Stormaid.Application.Interfaces;
 using Stormaid.Application.Services;
@@ -30,7 +29,7 @@ public sealed class RegulationDecisionCommandServiceTests
 
         Assert.True(result.Changed);
         Assert.Equal(RegulationStatus.AWAITING_DISPATCH, result.RegulationStatus);
-        Assert.Equal(2L, result.PublicStatusVersion);
+        Assert.Equal(3L, result.PublicStatusVersion);
         Assert.Equal(RegulatorUserId, result.RegulatorUserId);
 
         mocks.Decisions.Verify(
@@ -43,7 +42,7 @@ public sealed class RegulationDecisionCommandServiceTests
 
         mocks.Outbox.Verify(
             outbox => outbox.EnqueueAsync(
-                $"evt-regulation-{JavaIncidentId}-2",
+                $"evt-regulation-{JavaIncidentId}-3",
                 "incident.status.changed.v1",
                 "incident.status.changed.v1",
                 It.Is<string>(payload =>
@@ -72,7 +71,7 @@ public sealed class RegulationDecisionCommandServiceTests
 
         Assert.True(result.Changed);
         Assert.Equal(RegulationStatus.CLOSED, result.RegulationStatus);
-        Assert.Equal(2L, result.PublicStatusVersion);
+        Assert.Equal(3L, result.PublicStatusVersion);
 
         mocks.Decisions.Verify(
             repository => repository.AddAsync(
@@ -109,10 +108,10 @@ public sealed class RegulationDecisionCommandServiceTests
 
         Assert.True(result.Changed);
         Assert.Equal(RegulationStatus.UNDER_REVIEW, result.RegulationStatus);
-        Assert.Equal(1L, result.PublicStatusVersion);
+        Assert.Equal(2L, result.PublicStatusVersion);
         Assert.Equal(originalVersion + 1, incident.Version);
         Assert.Equal(RegulationStatus.UNDER_REVIEW, incident.RegulationStatus);
-        Assert.Equal(1L, incident.PublicStatusVersion);
+        Assert.Equal(2L, incident.PublicStatusVersion);
 
         mocks.Decisions.Verify(
             repository => repository.AddAsync(
