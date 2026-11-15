@@ -1,4 +1,3 @@
-
 using System.Text.Json;
 using Moq;
 using Stormaid.Application.Interfaces;
@@ -43,7 +42,7 @@ public sealed class IncidentReferenceCommandServiceTests
                 (eventId, eventType, routingKey, payload, _) =>
                 {
                     Assert.Equal(
-                        "evt-regulation-8-1",
+                        "evt-regulation-8-2",
                         eventId
                     );
 
@@ -88,7 +87,7 @@ public sealed class IncidentReferenceCommandServiceTests
         );
 
         Assert.Equal(
-            1L,
+            2L,
             result.PublicStatusVersion
         );
 
@@ -130,7 +129,7 @@ public sealed class IncidentReferenceCommandServiceTests
         );
 
         Assert.Equal(
-            "evt-regulation-8-1",
+            "evt-regulation-8-2",
             payload.GetProperty("eventId").GetString()
         );
 
@@ -145,7 +144,7 @@ public sealed class IncidentReferenceCommandServiceTests
         );
 
         Assert.Equal(
-            1L,
+            2L,
             payload.GetProperty("version").GetInt64()
         );
 
