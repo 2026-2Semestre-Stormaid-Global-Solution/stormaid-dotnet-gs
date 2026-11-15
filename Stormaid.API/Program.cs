@@ -57,7 +57,10 @@ builder.Services.AddScoped<IncidentDispatchCommandService>();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+var openApiEnabled =
+    app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("OpenApi:Enabled");
+
+if (openApiEnabled)
 {
     app.MapOpenApi();
 
@@ -76,11 +79,60 @@ app.UseAuthorization();
 
 app.UseRateLimiter();
 
+
 app.MapGet("/", () => Results.Ok(new
     {
         name = "Storm Aid API",
         version = "v1",
-        description = "API de regulação e operações de resgate."
+        description = "API institucional de regulação de emergências, gestão de unidades de resgate e acompanhamento de operações.",
+
+        documentation = new
+        {
+            swagger = openApiEnabled ? "/swagger/index.html" : null,
+            openApi = openApiEnabled ? "/openapi/v1.json" : null
+        },
+
+        health = new
+        {
+            general = "/health",
+            live = "/health/live",
+            ready = "/health/ready"
+        },
+
+        authentication = new
+        {
+            type = "Bearer JWT",
+            provider = "Storm Aid Java API",
+            roles = new[] { "CITIZEN", "REGULATOR", "RESPONDER" }
+        },
+
+        routes = new[]
+        {
+            new
+            {
+                area = "Acompanhamento do cidadão",
+                path = "/api/v1/citizens/incidents/{javaIncidentId}/tracking",
+                access = "CITIZEN"
+            },
+            new
+            {
+                area = "Regulação de ocorrências",
+                path = "/api/v1/regulation/incidents",
+                access = "REGULATOR"
+            },
+            new
+            {
+                area = "Unidades de resgate",
+                path = "/api/v1/rescue-units",
+                access = "REGULATOR / RESPONDER, conforme operação"
+            },
+            new
+            {
+                area = "Despachos operacionais",
+                path = "/api/v1/dispatches",
+                access = "REGULATOR / RESPONDER, conforme operação"
+            }
+        }
     }))
     .AllowAnonymous()
     .ExcludeFromDescription();
