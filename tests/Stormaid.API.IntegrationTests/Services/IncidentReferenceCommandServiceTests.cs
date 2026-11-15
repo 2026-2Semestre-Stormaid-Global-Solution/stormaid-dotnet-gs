@@ -15,7 +15,7 @@ namespace Stormaid.API.IntegrationTests.Services;
 public sealed class IncidentReferenceCommandServiceTests
 {
     /// <summary>
-    /// Verifica a transição, a geração do evento
+    /// Verifica a transição, a auditoria, a geração do evento
     /// e a ordem de registro antes da persistência.
     /// </summary>
     [Fact]
@@ -42,11 +42,16 @@ public sealed class IncidentReferenceCommandServiceTests
             .Callback<string, string, string, string, CancellationToken>(
                 (eventId, eventType, routingKey, payload, _) =>
                 {
-                    Assert.Equal("evt-regulation-8-1", eventId);
+                    Assert.Equal(
+                        "evt-regulation-8-1",
+                        eventId
+                    );
+
                     Assert.Equal(
                         "incident.status.changed.v1",
                         eventType
                     );
+
                     Assert.Equal(
                         "incident.status.changed.v1",
                         routingKey
@@ -68,15 +73,50 @@ public sealed class IncidentReferenceCommandServiceTests
             regulatorUserId: 1
         );
 
+        // 1 - Validar o resultado da análise.
+
         Assert.True(result.Changed);
-        Assert.Equal(8L, result.JavaIncidentId);
+
+        Assert.Equal(
+            8L,
+            result.JavaIncidentId
+        );
+
         Assert.Equal(
             RegulationStatus.UNDER_REVIEW,
             result.RegulationStatus
         );
 
-        Assert.Equal(1L, result.PublicStatusVersion);
-        Assert.Equal(2L, incident.Version);
+        Assert.Equal(
+            1L,
+            result.PublicStatusVersion
+        );
+
+        Assert.Equal(
+            2L,
+            incident.Version
+        );
+
+        // 2 - Validar a auditoria do regulador.
+
+        Assert.Equal(
+            1L,
+            incident.ReviewedByRegulatorUserId
+        );
+
+        Assert.NotNull(incident.ReviewStartedAt);
+
+        Assert.Equal(
+            DateTimeKind.Utc,
+            incident.ReviewStartedAt.Value.Kind
+        );
+
+        Assert.Equal(
+            RegulationStatus.UNDER_REVIEW,
+            incident.RegulationStatus
+        );
+
+        // 3 - Validar o conteúdo do evento.
 
         Assert.NotNull(eventPayload);
 
@@ -113,6 +153,8 @@ public sealed class IncidentReferenceCommandServiceTests
             payload.TryGetProperty("changedAt", out _)
         );
 
+        // 4 - Verificar a persistência e a Outbox.
+
         repository.Verify(
             x => x.SaveChangesAsync(
                 It.IsAny<CancellationToken>()
@@ -133,20 +175,40 @@ public sealed class IncidentReferenceCommandServiceTests
     }
 
     /// <summary>
-    /// Verifica que repetir a análise não
-    /// gera outra mensagem ou atualização.
+    /// Verifica que repetir a análise não gera outro evento,
+    /// não altera a versão e preserva o regulador original.
     /// </summary>
     [Fact]
     public async Task BeginReviewAsync_ShouldBeIdempotent()
     {
+        var incident = CreateIncident();
+
         var service = CreateService(
-            CreateIncident(),
+            incident,
             out var repository,
             out var outbox
         );
 
-        var first = await service.BeginReviewAsync(8, 1);
-        var second = await service.BeginReviewAsync(8, 1);
+        // 1 - Primeiro regulador inicia a análise.
+
+        var first = await service.BeginReviewAsync(
+            javaIncidentId: 8,
+            regulatorUserId: 901
+        );
+
+        var originalReviewStartedAt =
+            incident.ReviewStartedAt;
+
+        var originalVersion = incident.Version;
+
+        // 2 - Outro regulador tenta iniciar a mesma análise.
+
+        var second = await service.BeginReviewAsync(
+            javaIncidentId: 8,
+            regulatorUserId: 902
+        );
+
+        // 3 - Verificar a idempotência.
 
         Assert.True(first.Changed);
         Assert.False(second.Changed);
@@ -160,6 +222,33 @@ public sealed class IncidentReferenceCommandServiceTests
             first.PublicStatusVersion,
             second.PublicStatusVersion
         );
+
+        Assert.Equal(
+            originalVersion,
+            incident.Version
+        );
+
+        // 4 - Preservar a identidade do primeiro regulador.
+
+        Assert.Equal(
+            901L,
+            incident.ReviewedByRegulatorUserId
+        );
+
+        Assert.NotNull(originalReviewStartedAt);
+
+        Assert.Equal(
+            originalReviewStartedAt,
+            incident.ReviewStartedAt
+        );
+
+        Assert.Equal(
+            DateTimeKind.Utc,
+            incident.ReviewStartedAt!.Value.Kind
+        );
+
+        // 5 - Não permitir duplicação da persistência
+        // nem do evento de integração.
 
         repository.Verify(
             x => x.SaveChangesAsync(
@@ -182,7 +271,7 @@ public sealed class IncidentReferenceCommandServiceTests
 
     /// <summary>
     /// Verifica o comportamento quando
-    /// a ocorrência não existe no Oracle.
+    /// a ocorrência não existe no repositório.
     /// </summary>
     [Fact]
     public async Task BeginReviewAsync_ShouldRejectMissingIncident()
@@ -209,8 +298,13 @@ public sealed class IncidentReferenceCommandServiceTests
     {
         var incident = CreateIncident();
 
-        incident.BeginReview(DateTime.UtcNow.AddMinutes(-2));
-        incident.AwaitDispatch(DateTime.UtcNow.AddMinutes(-1));
+        incident.BeginReview(
+            DateTime.UtcNow.AddMinutes(-2)
+        );
+
+        incident.AwaitDispatch(
+            DateTime.UtcNow.AddMinutes(-1)
+        );
 
         var service = CreateService(
             incident,
@@ -344,24 +438,30 @@ public sealed class IncidentReferenceCommandServiceTests
         repository = new Mock<IIncidentReferenceRepository>();
         outbox = new Mock<IIntegrationEventOutbox>();
 
-        repository.Setup(x => x.GetTrackedByJavaIncidentIdAsync(
-                It.IsAny<long>(),
-                It.IsAny<CancellationToken>()
-            ))
+        repository.Setup(
+                x => x.GetTrackedByJavaIncidentIdAsync(
+                    It.IsAny<long>(),
+                    It.IsAny<CancellationToken>()
+                )
+            )
             .ReturnsAsync(incident);
 
-        repository.Setup(x => x.SaveChangesAsync(
-                It.IsAny<CancellationToken>()
-            ))
+        repository.Setup(
+                x => x.SaveChangesAsync(
+                    It.IsAny<CancellationToken>()
+                )
+            )
             .Returns(Task.CompletedTask);
 
-        outbox.Setup(x => x.EnqueueAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<CancellationToken>()
-            ))
+        outbox.Setup(
+                x => x.EnqueueAsync(
+                    It.IsAny<string>(),
+                    It.IsAny<string>(),
+                    It.IsAny<string>(),
+                    It.IsAny<string>(),
+                    It.IsAny<CancellationToken>()
+                )
+            )
             .Returns(Task.CompletedTask);
 
         return new IncidentReferenceCommandService(
