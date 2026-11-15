@@ -38,9 +38,9 @@ public sealed class RegulationDecisionEndpointTests : IClassFixture<StormaidWebA
     }
 
     [Theory]
-    [InlineData("DISPATCH_APPROVED", "FIRE_DEPARTMENT", "AWAITING_DISPATCH", 2L)]
-    [InlineData("NO_DISPATCH_REQUIRED", null, "CLOSED", 2L)]
-    [InlineData("MORE_INFORMATION_REQUIRED", null, "UNDER_REVIEW", 1L)]
+    [InlineData("DISPATCH_APPROVED", "FIRE_DEPARTMENT", "AWAITING_DISPATCH", 3L)]
+    [InlineData("NO_DISPATCH_REQUIRED", null, "CLOSED", 3L)]
+    [InlineData("MORE_INFORMATION_REQUIRED", null, "UNDER_REVIEW", 2L)]
     public async Task RegisterDecision_ShouldReturn201_WhenDecisionIsValid(
         string decisionType,
         string? institutionType,
@@ -90,16 +90,20 @@ public sealed class RegulationDecisionEndpointTests : IClassFixture<StormaidWebA
             It.IsAny<CancellationToken>()),
             Times.Once);
 
-        if (expectedVersion == 2)
+        if (decisionType != "MORE_INFORMATION_REQUIRED")
         {
+            var expectedEventStatus = expectedStatus == "CLOSED" ? "CLOSED_NO_DISPATCH" : expectedStatus;
+
             outbox.Verify(x => x.EnqueueAsync(
-                $"evt-regulation-{JavaIncidentId}-2",
-                "incident.status.changed.v1",
-                "incident.status.changed.v1",
-                It.Is<string>(payload =>
-                    payload.Contains($"\"status\":\"{expectedStatus}\"")),
-                It.IsAny<CancellationToken>()),
+                    $"evt-regulation-{JavaIncidentId}-3",
+                    "incident.status.changed.v1",
+                    "incident.status.changed.v1",
+                    It.Is<string>(payload =>
+                        payload.Contains(
+                            $"\"status\":\"{expectedEventStatus}\"")),
+                    It.IsAny<CancellationToken>()),
                 Times.Once);
+
         }
         else
         {
