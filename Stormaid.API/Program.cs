@@ -61,6 +61,7 @@ builder.Services.AddScoped<RescueUnitQueryService>();
 builder.Services.AddScoped<RescueUnitCommandService>();
 builder.Services.AddScoped<IncidentCreatedEventService>();
 builder.Services.AddScoped<IncidentReferenceQueryService>();
+builder.Services.AddScoped<IncidentReferenceCommandService>();
 
 var app = builder.Build();
 
