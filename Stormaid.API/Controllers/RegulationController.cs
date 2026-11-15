@@ -1,9 +1,22 @@
 
+using System.Globalization;
+using System.Security.Claims;
+using Microsoft.EntityFrameworkCore;
 using Stormaid.Application.DTOs.Response;
 using Stormaid.Application.Services;
 using Stormaid.Domain.Enums;
 
 namespace Stormaid.API.Controllers;
+
+/// <summary>
+/// Representa a resposta do início da análise
+/// institucional de uma ocorrência.
+/// </summary>
+public sealed record RegulationReviewResponse(
+    long JavaIncidentId,
+    string RegulationStatus,
+    long? ReviewedByRegulatorUserId
+);
 
 /// <summary>
 /// Configura as rotas institucionais de consulta e
@@ -12,15 +25,9 @@ namespace Stormaid.API.Controllers;
 public static class RegulationController
 {
     /// <summary>
-    /// Registra os endpoints de consulta das ocorrências
-    /// disponíveis para os reguladores institucionais.
+    /// Registra os endpoints de consulta e análise
+    /// das ocorrências institucionais.
     /// </summary>
-    /// <param name="app">
-    /// Construtor de rotas da aplicação.
-    /// </param>
-    /// <returns>
-    /// Construtor de rotas com os endpoints registrados.
-    /// </returns>
     public static IEndpointRouteBuilder MapRegulationRoutes(
         this IEndpointRouteBuilder app)
     {
@@ -71,6 +78,33 @@ public static class RegulationController
             .ProducesProblem(
                 StatusCodes.Status429TooManyRequests);
 
+        group.MapPost(
+                "/{javaIncidentId:long}/review",
+                BeginReviewAsync)
+            .WithName("BeginRegulationIncidentReview")
+            .WithSummary(
+                "Iniciar análise institucional da ocorrência")
+            .WithDescription(
+                "Inicia a análise de uma ocorrência pendente, " +
+                "registra o regulador autenticado e prepara " +
+                "a atualização pública na Outbox. " +
+                "A operação é idempotente quando a ocorrência " +
+                "já está em análise.")
+            .Produces<RegulationReviewResponse>(
+                StatusCodes.Status200OK)
+            .ProducesProblem(
+                StatusCodes.Status400BadRequest)
+            .ProducesProblem(
+                StatusCodes.Status401Unauthorized)
+            .ProducesProblem(
+                StatusCodes.Status403Forbidden)
+            .ProducesProblem(
+                StatusCodes.Status404NotFound)
+            .ProducesProblem(
+                StatusCodes.Status409Conflict)
+            .ProducesProblem(
+                StatusCodes.Status429TooManyRequests);
+
         return app;
     }
 
@@ -79,43 +113,6 @@ public static class RegulationController
     /// Permite filtrar pelo status e consultar os resultados
     /// de maneira paginada.
     /// </summary>
-    /// <param name="service">
-    /// Serviço de consulta das referências de ocorrências.
-    /// </param>
-    /// <param name="status">
-    /// Status de regulação utilizado como filtro.
-    /// Quando não informado, considera todos os status.
-    /// </param>
-    /// <param name="page">
-    /// Número da página, iniciando em zero.
-    /// Quando omitido, utiliza zero.
-    /// </param>
-    /// <param name="size">
-    /// Quantidade de registros por página, entre 1 e 100.
-    /// Quando omitida, utiliza 10.
-    /// </param>
-    /// <param name="cancellationToken">
-    /// Token de cancelamento da requisição HTTP.
-    /// </param>
-    /// <returns>
-    /// Resposta paginada contendo as ocorrências
-    /// e os metadados da paginação.
-    /// </returns>
-    /// <response code="200">
-    /// Consulta realizada com sucesso.
-    /// </response>
-    /// <response code="400">
-    /// Status ou parâmetros de paginação inválidos.
-    /// </response>
-    /// <response code="401">
-    /// Token JWT ausente ou inválido.
-    /// </response>
-    /// <response code="403">
-    /// Usuário sem permissão institucional de regulador.
-    /// </response>
-    /// <response code="429">
-    /// Limite de requisições excedido.
-    /// </response>
     private static async Task<IResult> GetPagedAsync(
         IncidentReferenceQueryService service,
         RegulationStatus? status,
@@ -148,38 +145,6 @@ public static class RegulationController
     /// Consulta uma ocorrência pelo identificador original
     /// utilizado na API Java.
     /// </summary>
-    /// <param name="javaIncidentId">
-    /// Identificador da ocorrência no serviço Java.
-    /// Não corresponde à chave primária interna do .NET.
-    /// </param>
-    /// <param name="service">
-    /// Serviço de consulta das referências de ocorrências.
-    /// </param>
-    /// <param name="cancellationToken">
-    /// Token de cancelamento da requisição HTTP.
-    /// </param>
-    /// <returns>
-    /// Dados da ocorrência encontrada ou uma resposta
-    /// de erro correspondente.
-    /// </returns>
-    /// <response code="200">
-    /// Ocorrência encontrada.
-    /// </response>
-    /// <response code="400">
-    /// Identificador Java inválido.
-    /// </response>
-    /// <response code="401">
-    /// Token JWT ausente ou inválido.
-    /// </response>
-    /// <response code="403">
-    /// Usuário sem permissão institucional de regulador.
-    /// </response>
-    /// <response code="404">
-    /// Ocorrência não encontrada.
-    /// </response>
-    /// <response code="429">
-    /// Limite de requisições excedido.
-    /// </response>
     private static async Task<IResult> GetByJavaIncidentIdAsync(
         long javaIncidentId,
         IncidentReferenceQueryService service,
@@ -189,7 +154,8 @@ public static class RegulationController
         {
             return Results.Problem(
                 title: "Identificador inválido.",
-                detail: "O identificador Java deve ser maior que zero.",
+                detail:
+                    "O identificador Java deve ser maior que zero.",
                 statusCode: StatusCodes.Status400BadRequest
             );
         }
@@ -211,5 +177,132 @@ public static class RegulationController
         }
 
         return Results.Ok(incident);
+    }
+
+    /// <summary>
+    /// Inicia a análise institucional de uma ocorrência
+    /// utilizando a identidade do regulador autenticado.
+    /// </summary>
+    /// <param name="javaIncidentId">
+    /// Identificador da ocorrência na API Java.
+    /// </param>
+    /// <param name="user">
+    /// Usuário autenticado por meio do JWT validado.
+    /// </param>
+    /// <param name="service">
+    /// Serviço responsável pelos comandos de regulação.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Token de cancelamento da requisição HTTP.
+    /// </param>
+    /// <returns>
+    /// Estado da análise e identificador do regulador
+    /// originalmente responsável pela ocorrência.
+    /// </returns>
+    private static async Task<IResult> BeginReviewAsync(
+        long javaIncidentId,
+        ClaimsPrincipal user,
+        IncidentReferenceCommandService service,
+        CancellationToken cancellationToken)
+    {
+        // 1 - Validar o identificador da ocorrência.
+
+        if (javaIncidentId <= 0)
+        {
+            return Results.Problem(
+                title: "Identificador inválido.",
+                detail:
+                    "O identificador Java deve ser maior que zero.",
+                statusCode: StatusCodes.Status400BadRequest
+            );
+        }
+
+        // 2 - Validar a identidade institucional
+        // presente no JWT autenticado.
+
+        var subject = user.FindFirst("sub")?.Value;
+        var userIdClaim = user.FindFirst("userId")?.Value;
+
+        var validSubject = long.TryParse(
+            subject,
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out var subjectId
+        );
+
+        var validUserId = long.TryParse(
+            userIdClaim,
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out var regulatorUserId
+        );
+
+        if (!validSubject ||
+            !validUserId ||
+            regulatorUserId <= 0 ||
+            subjectId != regulatorUserId)
+        {
+            return Results.Problem(
+                title: "Identidade institucional inválida.",
+                detail:
+                    "O token autenticado não contém " +
+                    "identificadores institucionais consistentes.",
+                statusCode: StatusCodes.Status403Forbidden
+            );
+        }
+
+        // 3 - Executar a análise e tratar
+        // os resultados de domínio.
+
+        try
+        {
+            var result = await service.BeginReviewAsync(
+                javaIncidentId,
+                regulatorUserId,
+                cancellationToken
+            );
+
+            // 4 - Retornar sempre o regulador original,
+            // inclusive nas requisições idempotentes.
+
+            var response = new RegulationReviewResponse(
+                JavaIncidentId: result.JavaIncidentId,
+                RegulationStatus: result.RegulationStatus.ToString(),
+                ReviewedByRegulatorUserId:
+                    result.ReviewedByRegulatorUserId
+            );
+
+            return Results.Ok(response);
+        }
+        catch (KeyNotFoundException)
+        {
+            return Results.Problem(
+                title: "Ocorrência não encontrada.",
+                detail:
+                    "A ocorrência solicitada não existe " +
+                    "na base de regulação.",
+                statusCode: StatusCodes.Status404NotFound
+            );
+        }
+        catch (InvalidOperationException)
+        {
+            return Results.Problem(
+                title: "Transição de status não permitida.",
+                detail:
+                    "O estado atual da ocorrência não permite " +
+                    "iniciar uma nova análise.",
+                statusCode: StatusCodes.Status409Conflict
+            );
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Results.Problem(
+                title: "Conflito de atualização.",
+                detail:
+                    "A ocorrência foi modificada por outra " +
+                    "operação. Consulte seu estado atualizado.",
+                statusCode: StatusCodes.Status409Conflict
+            );
+        }
     }
 }
