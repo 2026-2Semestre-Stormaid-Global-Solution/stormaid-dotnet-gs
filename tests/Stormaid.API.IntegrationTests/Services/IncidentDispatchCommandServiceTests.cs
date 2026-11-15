@@ -136,7 +136,7 @@ public sealed class IncidentDispatchCommandServiceTests
         Assert.Equal(RegulationStatus.DISPATCHED,
             incident.RegulationStatus);
 
-        Assert.Equal(3L, incident.PublicStatusVersion);
+        Assert.Equal(4L, incident.PublicStatusVersion);
 
         Assert.Equal(UnitOperationalStatus.BUSY,
             unit.OperationalStatus);
@@ -157,7 +157,7 @@ public sealed class IncidentDispatchCommandServiceTests
 
         fixture.Outbox.Verify(outbox =>
             outbox.EnqueueAsync(
-                $"evt-dispatch-{JavaIncidentId}-3",
+                $"evt-dispatch-{JavaIncidentId}-4",
                 "incident.status.changed.v1",
                 "incident.status.changed.v1",
                 It.Is<string>(payload =>
