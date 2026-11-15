@@ -294,6 +294,13 @@ public sealed class IncidentCreatedConsumerTests
 
             return Task.FromResult(existing);
         }
+        
+        public Task<IncidentReference?> GetTrackedByIdAsync(
+            long id,
+            CancellationToken cancellationToken = default)
+        {
+            return GetByIdAsync(id, cancellationToken);
+        }
 
         public Task<IncidentReference?> GetByJavaIncidentIdAsync(
             long javaIncidentId,
