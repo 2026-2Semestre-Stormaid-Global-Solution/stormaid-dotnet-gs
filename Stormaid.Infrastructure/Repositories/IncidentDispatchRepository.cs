@@ -17,6 +17,30 @@ public sealed class IncidentDispatchRepository : IIncidentDispatchRepository
             ?? throw new ArgumentNullException(nameof(context));
     }
 
+    public async Task<bool> HasActiveAssignmentAsync(
+        long rescueUnitId,
+        long responderUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (rescueUnitId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rescueUnitId));
+        }
+
+        if (responderUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(responderUserId));
+        }
+
+        return await _context.UnitAssignments
+            .AsNoTracking()
+            .AnyAsync(assignment =>
+                    assignment.RescueUnitId == rescueUnitId &&
+                    assignment.ResponderUserId == responderUserId &&
+                    assignment.Status == UnitAssignmentStatus.ACTIVE,
+                cancellationToken);
+    }
+
     public async Task<IncidentDispatch?> GetTrackedByIdAsync(
         long id,
         CancellationToken cancellationToken = default)
