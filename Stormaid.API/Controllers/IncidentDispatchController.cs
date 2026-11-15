@@ -14,6 +14,12 @@ namespace Stormaid.API.Controllers;
 /// </summary>
 public static class IncidentDispatchController
 {
+    /// <summary>
+    /// Registra as rotas responsáveis pelo gerenciamento
+    /// dos despachos operacionais.
+    /// </summary>
+    /// <param name="app">Construtor de rotas da aplicação.</param>
+    /// <returns>Construtor de rotas com os endpoints registrados.</returns>
     public static IEndpointRouteBuilder MapIncidentDispatchRoutes(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/dispatches")
