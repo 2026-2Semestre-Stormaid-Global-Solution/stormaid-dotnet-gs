@@ -16,6 +16,15 @@ public sealed class FakeRescueUnitRepository : IRescueUnitRepository
         return Task.FromResult<RescueUnit?>(null);
     }
 
+
+    public Task<RescueUnit?> GetTrackedByIdAsync(
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        return GetByIdAsync(id, cancellationToken);
+    }
+
+
     public Task<IReadOnlyList<RescueUnit>> GetPagedAsync(
         int page,
         int pageSize,
@@ -32,7 +41,7 @@ public sealed class FakeRescueUnitRepository : IRescueUnitRepository
     {
         return Task.FromResult(0);
     }
-    
+
     public Task<bool> ExistsByUnitCodeAsync(
         string unitCode,
         CancellationToken cancellationToken = default)
