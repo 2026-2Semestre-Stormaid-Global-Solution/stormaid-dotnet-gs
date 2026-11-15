@@ -88,6 +88,15 @@ public interface IIncidentReferenceRepository
     );
 
     /// <summary>
+    /// Busca uma ocorrência pelo identificador interno do .NET
+    /// com rastreamento para atualização do status público.
+    /// </summary>
+    Task<IncidentReference?> GetTrackedByIdAsync(
+        long id,
+        CancellationToken cancellationToken = default
+    );
+
+    /// <summary>
     /// Persiste as alterações das entidades rastreadas
     /// no banco de dados.
     /// </summary>
