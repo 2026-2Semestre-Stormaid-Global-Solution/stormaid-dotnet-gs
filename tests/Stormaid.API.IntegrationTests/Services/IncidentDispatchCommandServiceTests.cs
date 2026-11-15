@@ -471,6 +471,152 @@ public async Task CreateAsync_ShouldRejectInvalidIncidentStatus()
             It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public async Task ArriveAsync_ShouldUpdateStatusHistoryAndOutbox()
+    {
+        var incident = CreateEnRouteIncident();
+        var dispatch = CreateEnRouteDispatch();
+        var fixture = new Fixture(incident, null, null, dispatch);
+
+        var result = await fixture.Service.ArriveAsync(DispatchId, ResponderUserId);
+
+        Assert.Equal(DispatchStatus.ON_SITE, result.Status);
+        Assert.Equal(3L, result.Version);
+        Assert.Equal(6L, incident.PublicStatusVersion);
+        Assert.Equal(RegulationStatus.DISPATCHED, incident.RegulationStatus);
+        Assert.NotNull(dispatch.ArrivedAt);
+        Assert.NotNull(fixture.CreatedHistory);
+        Assert.Equal(DispatchStatus.EN_ROUTE, fixture.CreatedHistory.PreviousStatus);
+        Assert.Equal(DispatchStatus.ON_SITE, fixture.CreatedHistory.NewStatus);
+        Assert.Equal(ResponderUserId, fixture.CreatedHistory.ChangedByUserId);
+        Assert.Equal(DispatchActorRole.RESPONDER, fixture.CreatedHistory.ChangedByRole);
+
+        fixture.Outbox.Verify(outbox => outbox.EnqueueAsync(
+            $"evt-dispatch-{JavaIncidentId}-6",
+            "incident.status.changed.v1",
+            "incident.status.changed.v1",
+            It.Is<string>(payload =>
+                payload.Contains("\"status\":\"ON_SITE\"") &&
+                payload.Contains("\"version\":6") &&
+                payload.Contains($"\"incidentId\":{JavaIncidentId}")),
+            It.IsAny<CancellationToken>()), Times.Once);
+
+        fixture.Dispatches.Verify(repository => repository.SaveChangesAsync(
+            It.IsAny<CancellationToken>()), Times.Never);
+        fixture.Transaction.Verify(transaction => transaction.ExecuteAsync(
+            It.IsAny<Func<CancellationToken, Task<IncidentDispatchResponse>>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ArriveAsync_ShouldBeIdempotent()
+    {
+        var incident = CreateEnRouteIncident();
+        var fixture = new Fixture(incident, null, null, CreateEnRouteDispatch());
+
+        await fixture.Service.ArriveAsync(DispatchId, ResponderUserId);
+        var repeated = await fixture.Service.ArriveAsync(DispatchId, ResponderUserId);
+
+        Assert.Equal(DispatchStatus.ON_SITE, repeated.Status);
+        Assert.Equal(3L, repeated.Version);
+        Assert.Equal(6L, incident.PublicStatusVersion);
+        fixture.Dispatches.Verify(repository => repository.AddHistoryAsync(
+            It.IsAny<DispatchStatusHistory>(), It.IsAny<CancellationToken>()), Times.Once);
+        fixture.Outbox.Verify(outbox => outbox.EnqueueAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ArriveAsync_ShouldRejectMissingDispatch()
+    {
+        var fixture = new Fixture(CreateEnRouteIncident(), null, null);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => fixture.Service.ArriveAsync(DispatchId, ResponderUserId));
+    }
+
+    [Fact]
+    public async Task ArriveAsync_ShouldRejectOtherResponder()
+    {
+        var fixture = new Fixture(
+            CreateEnRouteIncident(), null, null, CreateEnRouteDispatch());
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => fixture.Service.ArriveAsync(DispatchId, ResponderUserId + 1));
+    }
+
+    [Fact]
+    public async Task ArriveAsync_ShouldRejectInactiveAssignment()
+    {
+        var fixture = new Fixture(
+            CreateEnRouteIncident(), null, null, CreateEnRouteDispatch());
+        fixture.Dispatches.Setup(repository => repository.HasActiveAssignmentAsync(
+                RescueUnitId, ResponderUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => fixture.Service.ArriveAsync(DispatchId, ResponderUserId));
+    }
+
+    [Fact]
+    public async Task ArriveAsync_ShouldRejectBeforeStartingRoute()
+    {
+        var fixture = new Fixture(
+            CreateEnRouteIncident(), null, null, CreateAcceptedDispatch());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.ArriveAsync(DispatchId, ResponderUserId));
+    }
+
+    [Fact]
+    public async Task ArriveAsync_ShouldRejectMissingIncident()
+    {
+        var fixture = new Fixture(null, null, null, CreateEnRouteDispatch());
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => fixture.Service.ArriveAsync(DispatchId, ResponderUserId));
+    }
+
+    [Fact]
+    public async Task ArriveAsync_ShouldRejectIncidentNotDispatched()
+    {
+        var fixture = new Fixture(
+            CreateIncident(), null, null, CreateEnRouteDispatch());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.ArriveAsync(DispatchId, ResponderUserId));
+        fixture.Outbox.Verify(outbox => outbox.EnqueueAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ArriveAsync_ShouldRejectInvalidIdentifier()
+    {
+        var fixture = new Fixture(
+            CreateEnRouteIncident(), null, null, CreateEnRouteDispatch());
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => fixture.Service.ArriveAsync(0, ResponderUserId));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => fixture.Service.ArriveAsync(DispatchId, 0));
+    }
+
+    private static IncidentReference CreateEnRouteIncident()
+    {
+        var incident = CreateDispatchedIncident();
+        incident.AdvancePublicStatusVersion(DateTime.UtcNow.AddMinutes(-3));
+        return incident;
+    }
+
+    private static IncidentDispatch CreateEnRouteDispatch()
+    {
+        var dispatch = CreateAcceptedDispatch();
+        dispatch.StartRoute(DateTime.UtcNow.AddMinutes(-2));
+        return dispatch;
+    }
+
     private static IncidentReference CreateDispatchedIncident()
     {
         var incident = CreateIncident();
