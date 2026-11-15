@@ -30,13 +30,6 @@ builder.Services.Configure<RabbitMqOptions>(
     )
 );
 
-builder.Services.Configure<RabbitMqOptions>(
-    builder.Configuration.GetSection(
-        RabbitMqOptions.SectionName
-    )
-);
-
-
 if (builder.Configuration.GetValue<bool>("RabbitMQ:Enabled"))
 {
     builder.Services.AddHostedService<IncidentCreatedConsumer>();
@@ -47,9 +40,6 @@ if (builder.Configuration.GetValue<bool>("OutboxPublisher:Enabled"))
     builder.Services.AddHostedService<
         OutboxPublisherBackgroundService>();
 }
-
-
-builder.Services.AddScoped<RescueUnitQueryService>();
 
 builder.Services.AddStormaidJwt(builder.Configuration);
 
@@ -63,6 +53,7 @@ builder.Services.AddScoped<IncidentCreatedEventService>();
 builder.Services.AddScoped<IncidentReferenceQueryService>();
 builder.Services.AddScoped<IncidentReferenceCommandService>();
 builder.Services.AddScoped<RegulationDecisionCommandService>();
+builder.Services.AddScoped<IncidentDispatchCommandService>();
 
 var app = builder.Build();
 
@@ -93,7 +84,6 @@ app.MapGet("/", () => Results.Ok(new
     }))
     .AllowAnonymous()
     .ExcludeFromDescription();
-
 
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
