@@ -172,7 +172,12 @@ public class IncidentReference : Entity
     {
         ValidateUpdateTime(utcNow);
 
-        PublicStatusVersion = checked(PublicStatusVersion + 1);
+        const long JavaInitialStatusVersion = 1;
+
+        PublicStatusVersion = checked(
+            Math.Max(PublicStatusVersion, JavaInitialStatusVersion) + 1
+        );
+
         Touch(utcNow);
     }
 
