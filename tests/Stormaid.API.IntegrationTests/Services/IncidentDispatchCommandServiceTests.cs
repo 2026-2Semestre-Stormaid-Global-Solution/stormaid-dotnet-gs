@@ -173,6 +173,91 @@ public sealed class IncidentDispatchCommandServiceTests
             Times.Once);
     }
 
+
+[Fact]
+public async Task CreateAsync_ShouldRejectUnapprovedDecision()
+{
+    var decision = new RegulationDecision(
+        IncidentReferenceId,
+        RegulatorUserId,
+        RegulationDecisionType.NO_DISPATCH_REQUIRED,
+        null,
+        "Atendimento de resgate não necessário.",
+        DateTime.UtcNow.AddMinutes(-5));
+
+    SetId(decision, DecisionId);
+
+    var fixture = new Fixture(
+        CreateIncident(),
+        decision,
+        CreateUnit());
+
+    await Assert.ThrowsAsync<InvalidOperationException>(
+        () => fixture.Service.CreateAsync(
+            CreateRequest(),
+            RegulatorUserId));
+
+    fixture.Dispatches.Verify(
+        repository => repository.AddAsync(
+            It.IsAny<IncidentDispatch>(),
+            It.IsAny<CancellationToken>()),
+        Times.Never);
+}
+
+[Fact]
+public async Task CreateAsync_ShouldRejectMissingRescueUnit()
+{
+    var fixture = new Fixture(
+        CreateIncident(),
+        CreateDecision(),
+        null);
+
+    await Assert.ThrowsAsync<KeyNotFoundException>(
+        () => fixture.Service.CreateAsync(
+            CreateRequest(),
+            RegulatorUserId));
+
+    fixture.Dispatches.Verify(
+        repository => repository.AddAsync(
+            It.IsAny<IncidentDispatch>(),
+            It.IsAny<CancellationToken>()),
+        Times.Never);
+}
+
+[Fact]
+public async Task CreateAsync_ShouldRejectInvalidIncidentStatus()
+{
+    var incident = CreateIncident();
+
+    incident.MarkDispatched(DateTime.UtcNow);
+
+    var fixture = new Fixture(
+        incident,
+        CreateDecision(),
+        CreateUnit());
+
+    await Assert.ThrowsAsync<InvalidOperationException>(
+        () => fixture.Service.CreateAsync(
+            CreateRequest(),
+            RegulatorUserId));
+
+    fixture.Dispatches.Verify(
+        repository => repository.AddAsync(
+            It.IsAny<IncidentDispatch>(),
+            It.IsAny<CancellationToken>()),
+        Times.Never);
+
+    fixture.Outbox.Verify(
+        outbox => outbox.EnqueueAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>()),
+        Times.Never);
+}
+
+
     private static CreateIncidentDispatchRequest CreateRequest()
     {
         return new CreateIncidentDispatchRequest(
