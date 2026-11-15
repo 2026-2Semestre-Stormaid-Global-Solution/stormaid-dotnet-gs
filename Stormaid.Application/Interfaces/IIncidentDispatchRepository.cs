@@ -9,6 +9,12 @@ public interface IIncidentDispatchRepository
         CancellationToken cancellationToken = default
     );
 
+    Task<bool> HasActiveAssignmentAsync(
+        long rescueUnitId,
+        long responderUserId,
+        CancellationToken cancellationToken = default
+    );
+
     Task<IncidentDispatch?> GetActiveByIncidentReferenceIdAsync(
         long incidentReferenceId,
         CancellationToken cancellationToken = default
