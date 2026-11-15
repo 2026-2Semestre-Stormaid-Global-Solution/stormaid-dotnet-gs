@@ -175,7 +175,7 @@ public class IncidentReferenceTests
 
         incident.AdvancePublicStatusVersion(UtcNow.AddMinutes(1));
 
-        Assert.That(incident.PublicStatusVersion, Is.EqualTo(1));
+        Assert.That(incident.PublicStatusVersion, Is.EqualTo(2));
         Assert.That(incident.Version, Is.EqualTo(1));
     }
 
