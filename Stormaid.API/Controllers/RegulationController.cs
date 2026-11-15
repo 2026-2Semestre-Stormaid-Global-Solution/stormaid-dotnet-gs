@@ -1,7 +1,7 @@
-
 using System.Globalization;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
+using Stormaid.Application.DTOs.Request;
 using Stormaid.Application.DTOs.Response;
 using Stormaid.Application.Services;
 using Stormaid.Domain.Enums;
@@ -104,6 +104,32 @@ public static class RegulationController
                 StatusCodes.Status409Conflict)
             .ProducesProblem(
                 StatusCodes.Status429TooManyRequests);
+
+
+        group.MapPost(
+                "/{javaIncidentId:long}/decisions",
+                RegisterDecisionAsync)
+            .WithName("RegisterRegulationDecision")
+            .WithSummary("Registrar decisão regulatória")
+            .WithDescription(
+                "Registra uma decisão institucional sobre uma ocorrência em análise.")
+            .Produces<RegulationDecisionResponse>(
+                StatusCodes.Status201Created)
+            .Produces<RegulationDecisionResponse>(
+                StatusCodes.Status200OK)
+            .ProducesProblem(
+                StatusCodes.Status400BadRequest)
+            .ProducesProblem(
+                StatusCodes.Status401Unauthorized)
+            .ProducesProblem(
+                StatusCodes.Status403Forbidden)
+            .ProducesProblem(
+                StatusCodes.Status404NotFound)
+            .ProducesProblem(
+                StatusCodes.Status409Conflict)
+            .ProducesProblem(
+                StatusCodes.Status429TooManyRequests);
+
 
         return app;
     }
@@ -318,4 +344,171 @@ public static class RegulationController
             );
         }
     }
+
+
+private static async Task<IResult> RegisterDecisionAsync(
+    long javaIncidentId,
+    CreateRegulationDecisionRequest request,
+    ClaimsPrincipal user,
+    RegulationDecisionCommandService service,
+    CancellationToken cancellationToken)
+{
+    if (javaIncidentId <= 0)
+    {
+        return Results.Problem(
+            title: "Identificador inválido.",
+            detail: "O identificador Java deve ser maior que zero.",
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var subject = user.FindFirst("sub")?.Value;
+    var userIdClaim = user.FindFirst("userId")?.Value;
+
+    var validUserId = long.TryParse(
+        userIdClaim,
+        NumberStyles.None,
+        CultureInfo.InvariantCulture,
+        out var regulatorUserId);
+
+    var hasNumericSubject = long.TryParse(
+        subject,
+        NumberStyles.None,
+        CultureInfo.InvariantCulture,
+        out var subjectId);
+
+    if (string.IsNullOrWhiteSpace(subject) ||
+        !validUserId ||
+        regulatorUserId <= 0 ||
+        (hasNumericSubject && subjectId != regulatorUserId))
+    {
+        return Results.Problem(
+            title: "Identidade institucional inválida.",
+            detail: "O token autenticado não contém uma identidade institucional válida.",
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    if (string.IsNullOrWhiteSpace(request.DecisionType) ||
+        !Enum.TryParse<RegulationDecisionType>(
+            request.DecisionType,
+            out var decisionType) ||
+        !Enum.IsDefined(decisionType) ||
+        request.DecisionType != decisionType.ToString())
+    {
+        return Results.Problem(
+            title: "Tipo de decisão inválido.",
+            detail: "Informe um tipo de decisão regulatória válido.",
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    ResponderInstitutionType? institutionType = null;
+
+    if (request.InstitutionType is not null)
+    {
+        if (!Enum.TryParse<ResponderInstitutionType>(
+                request.InstitutionType,
+                out var parsedInstitution) ||
+            !Enum.IsDefined(parsedInstitution) ||
+            request.InstitutionType != parsedInstitution.ToString())
+        {
+            return Results.Problem(
+                title: "Instituição inválida.",
+                detail: "Informe uma instituição de atendimento válida.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        institutionType = parsedInstitution;
+    }
+
+    if (decisionType == RegulationDecisionType.DISPATCH_APPROVED &&
+        !institutionType.HasValue)
+    {
+        return Results.Problem(
+            title: "Instituição obrigatória.",
+            detail: "A aprovação do despacho exige uma instituição de atendimento.",
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    if (decisionType != RegulationDecisionType.DISPATCH_APPROVED &&
+        institutionType.HasValue)
+    {
+        return Results.Problem(
+            title: "Instituição não permitida.",
+            detail: "A instituição deve ser nula quando o despacho não é aprovado.",
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    if (string.IsNullOrWhiteSpace(request.Justification))
+    {
+        return Results.Problem(
+            title: "Justificativa obrigatória.",
+            detail: "Informe a justificativa da decisão regulatória.",
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var justification = request.Justification.Trim();
+
+    if (justification.Length is < 10 or > 1000)
+    {
+        return Results.Problem(
+            title: "Justificativa inválida.",
+            detail: "A justificativa deve conter entre 10 e 1000 caracteres.",
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    try
+    {
+        var result = await service.RegisterAsync(
+            javaIncidentId,
+            regulatorUserId,
+            decisionType,
+            institutionType,
+            justification,
+            cancellationToken);
+
+        var response = new RegulationDecisionResponse(
+            DecisionId: result.DecisionId,
+            JavaIncidentId: result.JavaIncidentId,
+            DecisionType: result.DecisionType.ToString(),
+            InstitutionType: result.InstitutionType?.ToString(),
+            RegulationStatus: result.RegulationStatus.ToString(),
+            PublicStatusVersion: result.PublicStatusVersion,
+            RegulatorUserId: result.RegulatorUserId,
+            Changed: result.Changed);
+
+        return result.Changed
+            ? Results.Json(
+                response,
+                statusCode: StatusCodes.Status201Created)
+            : Results.Ok(response);
+    }
+    catch (KeyNotFoundException)
+    {
+        return Results.Problem(
+            title: "Ocorrência não encontrada.",
+            detail: "A ocorrência solicitada não existe na base de regulação.",
+            statusCode: StatusCodes.Status404NotFound);
+    }
+    catch (DbUpdateConcurrencyException)
+    {
+        return Results.Problem(
+            title: "Conflito de atualização.",
+            detail: "A ocorrência foi modificada por outra operação.",
+            statusCode: StatusCodes.Status409Conflict);
+    }
+    catch (InvalidOperationException)
+    {
+        return Results.Problem(
+            title: "Decisão não permitida.",
+            detail: "O estado atual da ocorrência não permite registrar essa decisão.",
+            statusCode: StatusCodes.Status409Conflict);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.Problem(
+            title: "Dados inválidos.",
+            detail: exception.Message,
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+}
+
 }
