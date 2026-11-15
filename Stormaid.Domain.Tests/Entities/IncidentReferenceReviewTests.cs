@@ -94,17 +94,14 @@ public sealed class IncidentReferenceReviewTests
     {
         var incident = CreateIncident();
 
-        incident.BeginReview(InitialDate.AddMinutes(1));
+        incident.AdvancePublicStatusVersion(InitialDate.AddMinutes(1));
 
-        incident.AdvancePublicStatusVersion(
-            InitialDate.AddMinutes(2)
-        );
+        Assert.That(incident.PublicStatusVersion, Is.EqualTo(2));
+        Assert.That(incident.Version, Is.EqualTo(1));
 
-        Assert.That(
-            incident.PublicStatusVersion,
-            Is.EqualTo(1)
-        );
+        incident.AdvancePublicStatusVersion(InitialDate.AddMinutes(2));
 
+        Assert.That(incident.PublicStatusVersion, Is.EqualTo(3));
         Assert.That(incident.Version, Is.EqualTo(2));
     }
 
