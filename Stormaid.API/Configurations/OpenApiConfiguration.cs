@@ -25,6 +25,31 @@ public static class OpenApiConfiguration
             options.AddDocumentTransformer(
                 (document, context, cancellationToken) =>
                 {
+                    
+                    document.Info = new()
+                    {
+                        Title = "Storm Aid | API de Regulação",
+                        Version = "v1",
+                        Description = """
+                              ## Sobre o Storm Aid
+
+                              O Storm Aid é uma plataforma de apoio à gestão de emergências,
+                              conectando solicitações dos cidadãos a equipes institucionais
+                              responsáveis pela regulação e pelo resgate.
+
+                              ### Perfis de acesso
+
+                              - **CITIZEN:** consulta suas próprias ocorrências.
+                              - **REGULATOR:** analisa ocorrências e gerencia decisões institucionais.
+                              - **RESPONDER:** executa operações de atendimento e resgate.
+
+                              ### Autenticação
+
+                              Utilize o botão **Authorize** e informe o JWT emitido
+                              pela API Java do Storm Aid.
+                        """
+                    };
+                    
                     document.Components ??= new OpenApiComponents();
 
                     document.Components.SecuritySchemes =
