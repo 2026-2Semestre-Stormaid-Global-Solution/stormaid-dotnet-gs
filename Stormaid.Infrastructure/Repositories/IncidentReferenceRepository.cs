@@ -160,6 +160,25 @@ public sealed class IncidentReferenceRepository : IIncidentReferenceRepository
     }
 
     /// <summary>
+    /// Busca a ocorrência pelo ID interno mantendo rastreamento.
+    /// </summary>
+    public async Task<IncidentReference?> GetTrackedByIdAsync(
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        if (id <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(id));
+        }
+
+        return await _context.IncidentReferences
+            .AsTracking()
+            .FirstOrDefaultAsync(
+                incident => incident.Id == id,
+                cancellationToken);
+    }
+
+    /// <summary>
     /// Salva as alterações das entidades rastreadas
     /// no banco de dados Oracle.
     /// </summary>
