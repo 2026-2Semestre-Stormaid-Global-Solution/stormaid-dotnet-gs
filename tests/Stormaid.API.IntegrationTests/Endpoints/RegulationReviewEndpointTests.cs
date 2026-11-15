@@ -1,4 +1,3 @@
-
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
@@ -112,7 +111,7 @@ public sealed class RegulationReviewEndpointTests
         );
 
         Assert.Equal(
-            1L,
+            2L,
             incident.PublicStatusVersion
         );
 
@@ -299,7 +298,7 @@ public sealed class RegulationReviewEndpointTests
         Assert.NotNull(incident.ReviewStartedAt);
 
         Assert.Equal(
-            1L,
+            2L,
             incident.PublicStatusVersion
         );
 
