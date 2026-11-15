@@ -109,7 +109,9 @@ public sealed class RegulationDecisionCommandServiceTests
         Assert.True(result.Changed);
         Assert.Equal(RegulationStatus.UNDER_REVIEW, result.RegulationStatus);
         Assert.Equal(1L, result.PublicStatusVersion);
-        Assert.Equal(originalVersion, incident.Version);
+        Assert.Equal(originalVersion + 1, incident.Version);
+        Assert.Equal(RegulationStatus.UNDER_REVIEW, incident.RegulationStatus);
+        Assert.Equal(1L, incident.PublicStatusVersion);
 
         mocks.Decisions.Verify(
             repository => repository.AddAsync(
