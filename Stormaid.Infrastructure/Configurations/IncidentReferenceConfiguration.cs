@@ -76,6 +76,19 @@ public class IncidentReferenceConfiguration : IEntityTypeConfiguration<IncidentR
             .HasMaxLength(25)
             .IsRequired();
 
+
+        builder.Property(x => x.ReviewedByRegulatorUserId)
+            .HasColumnName("REVIEWED_BY_USER_ID")
+            .HasColumnType("NUMBER(19,0)")
+            .IsRequired(false);
+
+        builder.Property(x => x.ReviewStartedAt)
+            .HasColumnName("REVIEW_STARTED_AT")
+            .HasColumnType("TIMESTAMP(6)")
+            .HasConversion(UtcConverter)
+            .IsRequired(false);
+
+
         builder.Property(x => x.PublicStatusVersion)
             .HasColumnName("PUBLIC_STATUS_VERSION")
             .HasColumnType("NUMBER(19,0)")
