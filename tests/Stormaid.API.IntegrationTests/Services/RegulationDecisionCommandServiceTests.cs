@@ -87,9 +87,10 @@ public sealed class RegulationDecisionCommandServiceTests
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.Is<string>(payload =>
-                    payload.Contains("\"status\":\"CLOSED\"")),
+                    payload.Contains("\"status\":\"CLOSED_NO_DISPATCH\"")),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+
     }
 
     [Fact]
