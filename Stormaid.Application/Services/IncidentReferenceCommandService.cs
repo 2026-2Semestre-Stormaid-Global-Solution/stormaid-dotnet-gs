@@ -6,13 +6,14 @@ using Stormaid.Domain.Enums;
 namespace Stormaid.Application.Services;
 
 /// <summary>
-/// Resultado da tentativa de iniciar a análise
+/// Representa o resultado do início da análise
 /// institucional de uma ocorrência.
 /// </summary>
 public sealed record IncidentReviewResult(
     long JavaIncidentId,
     RegulationStatus RegulationStatus,
     long PublicStatusVersion,
+    long? ReviewedByRegulatorUserId,
     bool Changed
 );
 
@@ -56,7 +57,8 @@ public sealed class IncidentReferenceCommandService
     /// Token de cancelamento da operação.
     /// </param>
     /// <returns>
-    /// Estado atualizado e indicação de transição realizada.
+    /// Estado atualizado, autoria original da análise
+    /// e indicação de transição realizada.
     /// </returns>
     public async Task<IncidentReviewResult> BeginReviewAsync(
         long javaIncidentId,
@@ -90,15 +92,21 @@ public sealed class IncidentReferenceCommandService
             );
         }
 
+        // 1 - Retornar o estado existente sem alterar
+        // a autoria ou gerar um novo evento.
+
         if (incident.RegulationStatus == RegulationStatus.UNDER_REVIEW)
         {
             return new IncidentReviewResult(
                 incident.JavaIncidentId,
                 incident.RegulationStatus,
                 incident.PublicStatusVersion,
+                incident.ReviewedByRegulatorUserId,
                 Changed: false
             );
         }
+
+        // 2 - Impedir transições inválidas.
 
         if (incident.RegulationStatus != RegulationStatus.PENDING_REVIEW)
         {
@@ -109,8 +117,14 @@ public sealed class IncidentReferenceCommandService
 
         var utcNow = DateTime.UtcNow;
 
+        // 3 - Iniciar a análise e registrar o regulador
+        // responsável pela primeira transição.
+
         incident.BeginReview(regulatorUserId, utcNow);
         incident.AdvancePublicStatusVersion(utcNow);
+
+        // 4 - Preparar o evento de atualização
+        // pública para integração com a API Java.
 
         var eventId =
             $"evt-regulation-{javaIncidentId}-{incident.PublicStatusVersion}";
@@ -125,6 +139,9 @@ public sealed class IncidentReferenceCommandService
             changedAt = utcNow
         });
 
+        // 5 - Adicionar o evento à Outbox
+        // antes de solicitar a persistência.
+
         await _outbox.EnqueueAsync(
             eventId: eventId,
             eventType: StatusChangedEventType,
@@ -133,12 +150,19 @@ public sealed class IncidentReferenceCommandService
             cancellationToken: cancellationToken
         );
 
+        // 6 - Persistir as alterações da ocorrência
+        // e a mensagem da Outbox.
+
         await _repository.SaveChangesAsync(cancellationToken);
+
+        // 7 - Retornar o estado atualizado
+        // com a autoria registrada.
 
         return new IncidentReviewResult(
             incident.JavaIncidentId,
             incident.RegulationStatus,
             incident.PublicStatusVersion,
+            incident.ReviewedByRegulatorUserId,
             Changed: true
         );
     }
