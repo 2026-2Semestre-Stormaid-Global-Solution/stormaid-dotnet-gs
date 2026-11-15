@@ -16,6 +16,7 @@ public sealed class IncidentDispatchCommandServiceTests
     private const long DecisionId = 60;
     private const long RescueUnitId = 70;
     private const long RegulatorUserId = 10;
+    private const long ResponderUserId = 20;
     private const long DispatchId = 90;
 
     [Fact]
@@ -258,6 +259,113 @@ public async Task CreateAsync_ShouldRejectInvalidIncidentStatus()
 }
 
 
+    [Fact]
+    public async Task AcceptAsync_ShouldAcceptAndRegisterHistory()
+    {
+        var dispatch = CreateDispatch();
+        var fixture = new Fixture(null, null, null, dispatch);
+
+        var result = await fixture.Service.AcceptAsync(DispatchId, ResponderUserId);
+
+        Assert.Equal(DispatchStatus.ACCEPTED, result.Status);
+        Assert.Equal(1L, result.Version);
+        Assert.Equal(ResponderUserId, dispatch.AcceptedByResponderUserId);
+        Assert.NotNull(dispatch.AcceptedAt);
+
+        Assert.NotNull(fixture.CreatedHistory);
+        Assert.Equal(DispatchStatus.PENDING_ACCEPTANCE, fixture.CreatedHistory.PreviousStatus);
+        Assert.Equal(DispatchStatus.ACCEPTED, fixture.CreatedHistory.NewStatus);
+        Assert.Equal(ResponderUserId, fixture.CreatedHistory.ChangedByUserId);
+        Assert.Equal(DispatchActorRole.RESPONDER, fixture.CreatedHistory.ChangedByRole);
+
+        fixture.Dispatches.Verify(repository => repository.SaveChangesAsync(
+            It.IsAny<CancellationToken>()), Times.Once);
+        fixture.Outbox.Verify(outbox => outbox.EnqueueAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_ShouldBeIdempotentForSameResponder()
+    {
+        var fixture = new Fixture(null, null, null, CreateDispatch());
+
+        await fixture.Service.AcceptAsync(DispatchId, ResponderUserId);
+        var repeated = await fixture.Service.AcceptAsync(DispatchId, ResponderUserId);
+
+        Assert.Equal(DispatchStatus.ACCEPTED, repeated.Status);
+        Assert.Equal(1L, repeated.Version);
+        fixture.Dispatches.Verify(repository => repository.AddHistoryAsync(
+            It.IsAny<DispatchStatusHistory>(), It.IsAny<CancellationToken>()), Times.Once);
+        fixture.Dispatches.Verify(repository => repository.SaveChangesAsync(
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_ShouldRejectMissingDispatch()
+    {
+        var fixture = new Fixture(null, null, null);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => fixture.Service.AcceptAsync(DispatchId, ResponderUserId));
+    }
+
+    [Fact]
+    public async Task AcceptAsync_ShouldRejectResponderWithoutActiveAssignment()
+    {
+        var fixture = new Fixture(null, null, null, CreateDispatch());
+        fixture.Dispatches.Setup(repository => repository.HasActiveAssignmentAsync(
+                RescueUnitId, ResponderUserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => fixture.Service.AcceptAsync(DispatchId, ResponderUserId));
+
+        fixture.Dispatches.Verify(repository => repository.AddHistoryAsync(
+            It.IsAny<DispatchStatusHistory>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_ShouldRejectInvalidTransition()
+    {
+        var dispatch = CreateDispatch();
+        dispatch.Cancel(DateTime.UtcNow);
+        var fixture = new Fixture(null, null, null, dispatch);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.AcceptAsync(DispatchId, ResponderUserId));
+
+        fixture.Dispatches.Verify(repository => repository.AddHistoryAsync(
+            It.IsAny<DispatchStatusHistory>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_ShouldRejectOtherResponderAfterAcceptance()
+    {
+        var fixture = new Fixture(null, null, null, CreateDispatch());
+        await fixture.Service.AcceptAsync(DispatchId, ResponderUserId);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.AcceptAsync(DispatchId, ResponderUserId + 1));
+
+        fixture.Dispatches.Verify(repository => repository.AddHistoryAsync(
+            It.IsAny<DispatchStatusHistory>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    private static IncidentDispatch CreateDispatch()
+    {
+        var dispatch = new IncidentDispatch(
+            IncidentReferenceId,
+            DecisionId,
+            RescueUnitId,
+            RegulatorUserId,
+            "Despacho de teste.",
+            DateTime.UtcNow.AddMinutes(-5));
+
+        SetId(dispatch, DispatchId);
+        return dispatch;
+    }
+
     private static CreateIncidentDispatchRequest CreateRequest()
     {
         return new CreateIncidentDispatchRequest(
@@ -350,7 +458,8 @@ public async Task CreateAsync_ShouldRejectInvalidIncidentStatus()
         public Fixture(
             IncidentReference? incident,
             RegulationDecision? decision,
-            RescueUnit? unit)
+            RescueUnit? unit,
+            IncidentDispatch? existingDispatch = null)
         {
             var incidents = new Mock<IIncidentReferenceRepository>();
             var decisions = new Mock<IRegulationDecisionRepository>();
@@ -373,6 +482,19 @@ public async Task CreateAsync_ShouldRejectInvalidIncidentStatus()
                         RescueUnitId,
                         It.IsAny<CancellationToken>()))
                 .ReturnsAsync(unit);
+
+            Dispatches.Setup(repository =>
+                    repository.GetTrackedByIdAsync(
+                        DispatchId,
+                        It.IsAny<CancellationToken>()))
+                .ReturnsAsync(existingDispatch);
+
+            Dispatches.Setup(repository =>
+                    repository.HasActiveAssignmentAsync(
+                        RescueUnitId,
+                        ResponderUserId,
+                        It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true);
 
             Dispatches.Setup(repository =>
                     repository.GetActiveByIncidentReferenceIdAsync(
@@ -437,3 +559,4 @@ public async Task CreateAsync_ShouldRejectInvalidIncidentStatus()
         }
     }
 }
+
