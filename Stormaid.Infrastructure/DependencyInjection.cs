@@ -58,6 +58,10 @@ public static class DependencyInjection
         services.AddScoped<
             IOutboxMessageRepository,
             OutboxMessageRepository>();
+        
+        services.AddScoped<
+            IRegulationDecisionRepository,
+            RegulationDecisionRepository>();
 
         services.AddScoped<
             IIncidentReferenceRepository,
