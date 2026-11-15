@@ -42,6 +42,12 @@ if (builder.Configuration.GetValue<bool>("RabbitMQ:Enabled"))
     builder.Services.AddHostedService<IncidentCreatedConsumer>();
 }
 
+if (builder.Configuration.GetValue<bool>("OutboxPublisher:Enabled"))
+{
+    builder.Services.AddHostedService<
+        OutboxPublisherBackgroundService>();
+}
+
 
 builder.Services.AddScoped<RescueUnitQueryService>();
 
