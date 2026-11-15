@@ -187,4 +187,73 @@ public sealed class IncidentDispatchCommandService
             },
             cancellationToken);
     }
+
+
+    public async Task<IncidentDispatchResponse> AcceptAsync(
+        long dispatchId,
+        long responderUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (dispatchId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dispatchId));
+        }
+
+        if (responderUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(responderUserId));
+        }
+
+        return await _transactionExecutor.ExecuteAsync(
+            async token =>
+            {
+                var dispatch = await _dispatchRepository.GetTrackedByIdAsync(
+                    dispatchId,
+                    token);
+
+                if (dispatch is null)
+                {
+                    throw new KeyNotFoundException("Dispatch was not found.");
+                }
+
+                // 01 - Repetição pelo mesmo responsável não altera o histórico.
+                if (dispatch.Status == DispatchStatus.ACCEPTED)
+                {
+                    dispatch.Accept(responderUserId, DateTime.UtcNow);
+                    return IncidentDispatchResponse.FromEntity(dispatch);
+                }
+
+                // 02 - A aceitação exige vínculo ativo com a unidade designada.
+                var assigned = await _dispatchRepository.HasActiveAssignmentAsync(
+                    dispatch.RescueUnitId,
+                    responderUserId,
+                    token);
+
+                if (!assigned)
+                {
+                    throw new UnauthorizedAccessException(
+                        "Responder is not actively assigned to this rescue unit.");
+                }
+
+                var previousStatus = dispatch.Status;
+                var utcNow = DateTime.UtcNow;
+
+                dispatch.Accept(responderUserId, utcNow);
+
+                var history = new DispatchStatusHistory(
+                    incidentDispatchId: dispatch.Id,
+                    previousStatus: previousStatus,
+                    newStatus: DispatchStatus.ACCEPTED,
+                    changedByUserId: responderUserId,
+                    changedByRole: DispatchActorRole.RESPONDER,
+                    note: "Despacho aceito pela equipe de resgate.",
+                    utcNow: utcNow);
+
+                await _dispatchRepository.AddHistoryAsync(history, token);
+                await _dispatchRepository.SaveChangesAsync(token);
+
+                return IncidentDispatchResponse.FromEntity(dispatch);
+            },
+            cancellationToken);
+    }
 }
