@@ -374,4 +374,120 @@ public sealed class IncidentDispatchCommandService
             },
             cancellationToken);
     }
+
+
+    /// <summary>
+    /// Registra a chegada da equipe ao local e publica o status ON_SITE.
+    /// Preserva a situação regulatória DISPATCHED no .NET.
+    /// </summary>
+    public async Task<IncidentDispatchResponse> ArriveAsync(
+        long dispatchId,
+        long responderUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (dispatchId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dispatchId));
+        }
+
+        if (responderUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(responderUserId));
+        }
+
+        return await _transactionExecutor.ExecuteAsync(
+            async token =>
+            {
+                var dispatch = await _dispatchRepository.GetTrackedByIdAsync(
+                    dispatchId,
+                    token);
+
+                if (dispatch is null)
+                {
+                    throw new KeyNotFoundException("Dispatch was not found.");
+                }
+
+                if (dispatch.AcceptedByResponderUserId != responderUserId)
+                {
+                    throw new UnauthorizedAccessException(
+                        "Responder did not accept this dispatch.");
+                }
+
+                var assigned = await _dispatchRepository.HasActiveAssignmentAsync(
+                    dispatch.RescueUnitId,
+                    responderUserId,
+                    token);
+
+                if (!assigned)
+                {
+                    throw new UnauthorizedAccessException(
+                        "Responder is not actively assigned to this rescue unit.");
+                }
+
+                // Repetições pelo responsável não geram novos eventos ou histórico.
+                if (dispatch.Status == DispatchStatus.ON_SITE)
+                {
+                    return IncidentDispatchResponse.FromEntity(dispatch);
+                }
+
+                if (dispatch.Status != DispatchStatus.EN_ROUTE)
+                {
+                    throw new InvalidOperationException(
+                        "Dispatch is not en route.");
+                }
+
+                var incident = await _incidentRepository.GetTrackedByIdAsync(
+                    dispatch.IncidentReferenceId,
+                    token);
+
+                if (incident is null)
+                {
+                    throw new KeyNotFoundException("Incident was not found.");
+                }
+
+                if (incident.RegulationStatus != RegulationStatus.DISPATCHED)
+                {
+                    throw new InvalidOperationException(
+                        "Incident is not dispatched.");
+                }
+
+                var utcNow = DateTime.UtcNow;
+                var previousStatus = dispatch.Status;
+
+                dispatch.Arrive(utcNow);
+                incident.AdvancePublicStatusVersion(utcNow);
+
+                var history = new DispatchStatusHistory(
+                    incidentDispatchId: dispatch.Id,
+                    previousStatus: previousStatus,
+                    newStatus: DispatchStatus.ON_SITE,
+                    changedByUserId: responderUserId,
+                    changedByRole: DispatchActorRole.RESPONDER,
+                    note: "Equipe chegou ao local da ocorrência.",
+                    utcNow: utcNow);
+
+                await _dispatchRepository.AddHistoryAsync(history, token);
+
+                var eventId = $"evt-dispatch-{incident.JavaIncidentId}-{incident.PublicStatusVersion}";
+                var payload = JsonSerializer.Serialize(new
+                {
+                    eventType = StatusChangedEventType,
+                    eventId,
+                    incidentId = incident.JavaIncidentId,
+                    status = DispatchStatus.ON_SITE.ToString(),
+                    version = incident.PublicStatusVersion,
+                    changedAt = utcNow
+                });
+
+                await _outbox.EnqueueAsync(
+                    eventId: eventId,
+                    eventType: StatusChangedEventType,
+                    routingKey: StatusChangedEventType,
+                    payload: payload,
+                    cancellationToken: token);
+
+                return IncidentDispatchResponse.FromEntity(dispatch);
+            },
+            cancellationToken);
+    }
 }
