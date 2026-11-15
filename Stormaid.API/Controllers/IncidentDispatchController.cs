@@ -58,6 +58,22 @@ public static class IncidentDispatchController
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
+        group.MapPost("/{id:long}/start-route", StartRouteAsync)
+            .WithName("StartIncidentDispatchRoute")
+            .WithSummary("Iniciar deslocamento da equipe")
+            .WithDescription(
+                "Permite que o socorrista responsável pelo despacho inicie " +
+                "o deslocamento, registra o histórico e publica EN_ROUTE " +
+                "na Outbox para sincronização com o Java.")
+            .RequireAuthorization(policy => policy.RequireRole("RESPONDER"))
+            .Produces<IncidentDispatchResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
+
         return app;
     }
 
@@ -158,6 +174,67 @@ public static class IncidentDispatchController
             return Results.Problem(
                 title: "Transição de despacho inválida.",
                 detail: "O despacho não pode ser aceito no estado atual ou já pertence a outro responsável.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.Problem(
+                title: "Dados inválidos.",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
+
+    private static async Task<IResult> StartRouteAsync(
+        long id,
+        ClaimsPrincipal user,
+        IncidentDispatchCommandService service,
+        CancellationToken cancellationToken)
+    {
+        if (id <= 0)
+        {
+            return Results.Problem(
+                title: "Identificador inválido.",
+                detail: "O despacho deve possuir identificador maior que zero.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (!TryGetInstitutionalUserId(user, out var responderUserId))
+        {
+            return InvalidInstitutionalIdentity();
+        }
+
+        try
+        {
+            var dispatch = await service.StartRouteAsync(
+                id, responderUserId, cancellationToken);
+            return Results.Ok(dispatch);
+        }
+        catch (KeyNotFoundException)
+        {
+            return Results.Problem(
+                title: "Registro não encontrado.",
+                detail: "O despacho ou a ocorrência vinculada não foi encontrado.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Results.Problem(
+                title: "Socorrista não autorizado.",
+                detail: "Apenas quem aceitou o despacho e mantém vínculo ativo " +
+                        "com a unidade pode iniciar o deslocamento.",
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return ConcurrencyConflict();
+        }
+        catch (InvalidOperationException)
+        {
+            return Results.Problem(
+                title: "Transição de despacho inválida.",
+                detail: "O despacho deve estar aceito e a ocorrência deve " +
+                        "estar despachada.",
                 statusCode: StatusCodes.Status409Conflict);
         }
         catch (ArgumentException exception)
