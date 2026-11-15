@@ -22,6 +22,213 @@ public sealed class OracleRegulationDecisionIntegrationTests
 
 
     [OracleIntegrationFact]
+    public async Task RegisterDecision_ShouldBeIdempotent_WhenRequestIsRepeated()
+    {
+        const long testIncidentId = 900006;
+        const string expectedEventId = "evt-regulation-900006-2";
+
+        var connectionString = Environment.GetEnvironmentVariable(
+            "STORMAID_TEST_ORACLE_CONNECTION_STRING");
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Configure a conexão Oracle de desenvolvimento.");
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Oracle"] = connectionString
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddInfrastructure(configuration);
+
+        await using var provider = services.BuildServiceProvider();
+
+        var created = false;
+        var incidentReferenceId = 0L;
+        var firstDecisionId = 0L;
+
+        try
+        {
+            await using (var setupScope = provider.CreateAsyncScope())
+            {
+                var context = setupScope.ServiceProvider
+                    .GetRequiredService<StormaidDbContext>();
+
+                Assert.False(await context.IncidentReferences.AsNoTracking()
+                    .AnyAsync(x => x.JavaIncidentId == testIncidentId));
+
+                Assert.False(await context.OutboxMessages.AsNoTracking()
+                    .AnyAsync(x => x.EventId == expectedEventId));
+
+                var utcNow = DateTime.UtcNow.AddMinutes(-10);
+                var reviewTime = utcNow.AddMinutes(1);
+
+                var incident = new IncidentReference(
+                    javaIncidentId: testIncidentId,
+                    requesterUserId: 1,
+                    recipientType: RecipientType.SELF,
+                    channelType: ChannelType.TEXT_INPUT,
+                    emergencyCategory: EmergencyCategory.CLIMATE_DISASTER,
+                    latitude: -23.5505m,
+                    longitude: -46.6333m,
+                    addressText: "Teste de idempotência regulatória - Storm Aid",
+                    javaCreatedAt: null,
+                    utcNow: utcNow);
+
+                incident.BeginReview(RegulatorUserId, reviewTime);
+                incident.AdvancePublicStatusVersion(reviewTime);
+
+                await context.IncidentReferences.AddAsync(incident);
+                await context.SaveChangesAsync();
+
+                incidentReferenceId = incident.Id;
+                created = true;
+
+                Assert.True(incidentReferenceId > 0);
+            }
+
+            await using (var firstScope = provider.CreateAsyncScope())
+            {
+                var service = new RegulationDecisionCommandService(
+                    firstScope.ServiceProvider.GetRequiredService<IIncidentReferenceRepository>(),
+                    firstScope.ServiceProvider.GetRequiredService<IRegulationDecisionRepository>(),
+                    firstScope.ServiceProvider.GetRequiredService<IIntegrationEventOutbox>());
+
+                var result = await service.RegisterAsync(
+                    javaIncidentId: testIncidentId,
+                    regulatorUserId: RegulatorUserId,
+                    decisionType: RegulationDecisionType.DISPATCH_APPROVED,
+                    institutionType: ResponderInstitutionType.FIRE_DEPARTMENT,
+                    justification: Justification);
+
+                Assert.True(result.Changed);
+                Assert.Equal(RegulationStatus.AWAITING_DISPATCH, result.RegulationStatus);
+                Assert.Equal(2L, result.PublicStatusVersion);
+
+                firstDecisionId = result.DecisionId;
+
+                Assert.True(firstDecisionId > 0);
+            }
+
+            await using (var secondScope = provider.CreateAsyncScope())
+            {
+                var service = new RegulationDecisionCommandService(
+                    secondScope.ServiceProvider.GetRequiredService<IIncidentReferenceRepository>(),
+                    secondScope.ServiceProvider.GetRequiredService<IRegulationDecisionRepository>(),
+                    secondScope.ServiceProvider.GetRequiredService<IIntegrationEventOutbox>());
+
+                var result = await service.RegisterAsync(
+                    javaIncidentId: testIncidentId,
+                    regulatorUserId: RegulatorUserId,
+                    decisionType: RegulationDecisionType.DISPATCH_APPROVED,
+                    institutionType: ResponderInstitutionType.FIRE_DEPARTMENT,
+                    justification: Justification);
+
+                Assert.False(result.Changed);
+                Assert.Equal(firstDecisionId, result.DecisionId);
+                Assert.Equal(RegulatorUserId, result.RegulatorUserId);
+                Assert.Equal(RegulationStatus.AWAITING_DISPATCH, result.RegulationStatus);
+                Assert.Equal(2L, result.PublicStatusVersion);
+            }
+
+            await using (var verificationScope = provider.CreateAsyncScope())
+            {
+                var context = verificationScope.ServiceProvider
+                    .GetRequiredService<StormaidDbContext>();
+
+                var storedIncident = await context.IncidentReferences
+                    .AsNoTracking()
+                    .SingleAsync(x => x.JavaIncidentId == testIncidentId);
+
+                Assert.Equal(incidentReferenceId, storedIncident.Id);
+                Assert.Equal(RegulationStatus.AWAITING_DISPATCH, storedIncident.RegulationStatus);
+                Assert.Equal(2L, storedIncident.PublicStatusVersion);
+                Assert.Equal(4L, storedIncident.Version);
+
+                var decisionCount = await context.RegulationDecisions
+                    .AsNoTracking()
+                    .CountAsync(x => x.IncidentReferenceId == incidentReferenceId);
+
+                Assert.Equal(1, decisionCount);
+
+                var storedDecision = await context.RegulationDecisions
+                    .AsNoTracking()
+                    .SingleAsync(x => x.IncidentReferenceId == incidentReferenceId);
+
+                Assert.Equal(firstDecisionId, storedDecision.Id);
+                Assert.Equal(RegulatorUserId, storedDecision.RegulatorUserId);
+                Assert.Equal(RegulationDecisionType.DISPATCH_APPROVED, storedDecision.DecisionType);
+                Assert.Equal(ResponderInstitutionType.FIRE_DEPARTMENT, storedDecision.InstitutionType);
+                Assert.Equal(Justification, storedDecision.Justification);
+
+                var eventCount = await context.OutboxMessages
+                    .AsNoTracking()
+                    .CountAsync(x => x.EventId == expectedEventId);
+
+                Assert.Equal(1, eventCount);
+
+                var storedEvent = await context.OutboxMessages
+                    .AsNoTracking()
+                    .SingleAsync(x => x.EventId == expectedEventId);
+
+                Assert.Equal("incident.status.changed.v1", storedEvent.EventType);
+                Assert.Equal("incident.status.changed.v1", storedEvent.RoutingKey);
+
+                using var payload = JsonDocument.Parse(storedEvent.Payload);
+
+                Assert.Equal(
+                    "AWAITING_DISPATCH",
+                    payload.RootElement.GetProperty("status").GetString());
+
+                Assert.Equal(
+                    2L,
+                    payload.RootElement.GetProperty("version").GetInt64());
+            }
+        }
+        finally
+        {
+            if (created)
+            {
+                await using var cleanupScope = provider.CreateAsyncScope();
+
+                var context = cleanupScope.ServiceProvider
+                    .GetRequiredService<StormaidDbContext>();
+
+                await using var transaction = await context.Database.BeginTransactionAsync();
+
+                await context.Database.ExecuteSqlInterpolatedAsync(
+                    $"DELETE FROM TB_STORMAID_OUTBOX_MESSAGE WHERE EVENT_ID = {expectedEventId}");
+
+                await context.Database.ExecuteSqlInterpolatedAsync(
+                    $"DELETE FROM TB_STORMAID_REGULATION_DECISION WHERE INCIDENT_REFERENCE_ID = {incidentReferenceId}");
+
+                await context.Database.ExecuteSqlInterpolatedAsync(
+                    $"DELETE FROM TB_STORMAID_INCIDENT_REFERENCE WHERE JAVA_INCIDENT_ID = {testIncidentId}");
+
+                await transaction.CommitAsync();
+            }
+        }
+
+        await using var finalScope = provider.CreateAsyncScope();
+
+        var finalContext = finalScope.ServiceProvider
+            .GetRequiredService<StormaidDbContext>();
+
+        Assert.False(await finalContext.IncidentReferences.AsNoTracking()
+            .AnyAsync(x => x.JavaIncidentId == testIncidentId));
+
+        Assert.False(await finalContext.RegulationDecisions.AsNoTracking()
+            .AnyAsync(x => x.IncidentReferenceId == incidentReferenceId));
+
+        Assert.False(await finalContext.OutboxMessages.AsNoTracking()
+            .AnyAsync(x => x.EventId == expectedEventId));
+    }
+
+
+    [OracleIntegrationFact]
     public async Task RegisterDecision_ShouldRollback_WhenOutboxInsertFails()
     {
         const long testIncidentId = 900005;
