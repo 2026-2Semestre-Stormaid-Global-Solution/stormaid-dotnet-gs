@@ -132,6 +132,7 @@ public sealed class RegulationDecisionCommandService
                 break;
 
             case RegulationDecisionType.MORE_INFORMATION_REQUIRED:
+                incident.RequestMoreInformation(utcNow);
                 break;
 
             default:
