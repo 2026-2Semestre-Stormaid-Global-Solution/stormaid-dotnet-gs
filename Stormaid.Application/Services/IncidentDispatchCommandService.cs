@@ -256,4 +256,122 @@ public sealed class IncidentDispatchCommandService
             },
             cancellationToken);
     }
+
+    /// <summary>
+    /// Inicia o deslocamento da unidade e publica o status público EN_ROUTE.
+    /// A atualização do despacho, histórico, versão pública e Outbox é atômica.
+    /// </summary>
+    public async Task<IncidentDispatchResponse> StartRouteAsync(
+        long dispatchId,
+        long responderUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (dispatchId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dispatchId));
+        }
+
+        if (responderUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(responderUserId));
+        }
+
+        return await _transactionExecutor.ExecuteAsync(
+            async token =>
+            {
+                var dispatch = await _dispatchRepository.GetTrackedByIdAsync(
+                    dispatchId,
+                    token);
+
+                if (dispatch is null)
+                {
+                    throw new KeyNotFoundException("Dispatch was not found.");
+                }
+
+                // O deslocamento é exclusivo do profissional que aceitou o despacho.
+                if (dispatch.AcceptedByResponderUserId != responderUserId)
+                {
+                    throw new UnauthorizedAccessException(
+                        "Responder did not accept this dispatch.");
+                }
+
+                var assigned = await _dispatchRepository.HasActiveAssignmentAsync(
+                    dispatch.RescueUnitId,
+                    responderUserId,
+                    token);
+
+                if (!assigned)
+                {
+                    throw new UnauthorizedAccessException(
+                        "Responder is not actively assigned to this rescue unit.");
+                }
+
+                // Uma repetição pelo mesmo profissional não cria histórico ou evento.
+                if (dispatch.Status == DispatchStatus.EN_ROUTE)
+                {
+                    return IncidentDispatchResponse.FromEntity(dispatch);
+                }
+
+                if (dispatch.Status != DispatchStatus.ACCEPTED)
+                {
+                    throw new InvalidOperationException(
+                        "Dispatch is not accepted.");
+                }
+
+                var incident = await _incidentRepository.GetTrackedByIdAsync(
+                    dispatch.IncidentReferenceId,
+                    token);
+
+                if (incident is null)
+                {
+                    throw new KeyNotFoundException("Incident was not found.");
+                }
+
+                if (incident.RegulationStatus != RegulationStatus.DISPATCHED)
+                {
+                    throw new InvalidOperationException(
+                        "Incident is not dispatched.");
+                }
+
+                var utcNow = DateTime.UtcNow;
+                var previousStatus = dispatch.Status;
+
+                dispatch.StartRoute(utcNow);
+                incident.AdvancePublicStatusVersion(utcNow);
+
+                var history = new DispatchStatusHistory(
+                    incidentDispatchId: dispatch.Id,
+                    previousStatus: previousStatus,
+                    newStatus: DispatchStatus.EN_ROUTE,
+                    changedByUserId: responderUserId,
+                    changedByRole: DispatchActorRole.RESPONDER,
+                    note: "Equipe iniciou o deslocamento para a ocorrência.",
+                    utcNow: utcNow);
+
+                await _dispatchRepository.AddHistoryAsync(history, token);
+
+                // EN_ROUTE é um status público do Java, não de RegulationStatus.
+                var eventId = $"evt-dispatch-{incident.JavaIncidentId}-{incident.PublicStatusVersion}";
+                var payload = JsonSerializer.Serialize(new
+                {
+                    eventType = StatusChangedEventType,
+                    eventId,
+                    incidentId = incident.JavaIncidentId,
+                    status = DispatchStatus.EN_ROUTE.ToString(),
+                    version = incident.PublicStatusVersion,
+                    changedAt = utcNow
+                });
+
+                await _outbox.EnqueueAsync(
+                    eventId: eventId,
+                    eventType: StatusChangedEventType,
+                    routingKey: StatusChangedEventType,
+                    payload: payload,
+                    cancellationToken: token);
+
+                // O executor transacional confirma todas as alterações juntas.
+                return IncidentDispatchResponse.FromEntity(dispatch);
+            },
+            cancellationToken);
+    }
 }
