@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Stormaid.API.Health;
 using Stormaid.Infrastructure.Messaging;
 using Stormaid.API.Messaging;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,6 +30,14 @@ builder.Services.Configure<RabbitMqOptions>(
         RabbitMqOptions.SectionName
     )
 );
+
+builder.Services.AddSerilog((services, loggerConfiguration) =>
+{
+    loggerConfiguration
+        .ReadFrom.Configuration(builder.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext();
+});
 
 if (builder.Configuration.GetValue<bool>("RabbitMQ:Enabled"))
 {
@@ -69,6 +78,12 @@ if (openApiEnabled)
         options.DocumentPath = "/openapi/v1.json";
     });
 }
+
+app.UseSerilogRequestLogging(options =>
+{
+    options.MessageTemplate =
+        "HTTP {RequestMethod} {RequestPath} respondeu {StatusCode} em {Elapsed:0.0000} ms";
+});
 
 app.UseHttpsRedirection();
 
