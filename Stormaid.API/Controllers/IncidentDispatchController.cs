@@ -1,4 +1,3 @@
-
 using System.Globalization;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +8,7 @@ using Stormaid.Application.Services;
 namespace Stormaid.API.Controllers;
 
 /// <summary>
-/// Rotas responsáveis pela criação dos despachos
+/// Rotas responsáveis pela criação e aceitação dos despachos
 /// operacionais das ocorrências reguladas.
 /// </summary>
 public static class IncidentDispatchController
@@ -25,8 +24,6 @@ public static class IncidentDispatchController
         var group = app.MapGroup("/api/v1/dispatches")
             .WithTags("Despachos Operacionais")
             .RequireAuthorization("InstitutionalAccess")
-            .RequireAuthorization(policy =>
-                policy.RequireRole("REGULATOR"))
             .RequireRateLimiting("InstitutionalApi");
 
         group.MapPost("", CreateAsync)
@@ -37,20 +34,29 @@ public static class IncidentDispatchController
                 "decisão regulatória aprovada. Valida a " +
                 "disponibilidade da unidade, registra o " +
                 "histórico e prepara o evento na Outbox.")
-            .Produces<IncidentDispatchResponse>(
-                StatusCodes.Status201Created)
-            .ProducesProblem(
-                StatusCodes.Status400BadRequest)
-            .ProducesProblem(
-                StatusCodes.Status401Unauthorized)
-            .ProducesProblem(
-                StatusCodes.Status403Forbidden)
-            .ProducesProblem(
-                StatusCodes.Status404NotFound)
-            .ProducesProblem(
-                StatusCodes.Status409Conflict)
-            .ProducesProblem(
-                StatusCodes.Status429TooManyRequests);
+            .RequireAuthorization(policy => policy.RequireRole("REGULATOR"))
+            .Produces<IncidentDispatchResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
+
+        group.MapPost("/{id:long}/accept", AcceptAsync)
+            .WithName("AcceptIncidentDispatch")
+            .WithSummary("Aceitar despacho operacional")
+            .WithDescription(
+                "Permite que um socorrista vinculado à unidade aceite " +
+                "um despacho pendente, registrando a transição no histórico.")
+            .RequireAuthorization(policy => policy.RequireRole("RESPONDER"))
+            .Produces<IncidentDispatchResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
         return app;
     }
@@ -61,19 +67,110 @@ public static class IncidentDispatchController
         IncidentDispatchCommandService service,
         CancellationToken cancellationToken)
     {
-
-        if (request.JavaIncidentId <= 0 ||
-            request.RescueUnitId <= 0)
+        if (request.JavaIncidentId <= 0 || request.RescueUnitId <= 0)
         {
             return Results.Problem(
                 title: "Identificadores inválidos.",
-                detail:
-                    "A ocorrência e a unidade de resgate " +
-                    "devem possuir identificadores maiores que zero.",
-                statusCode: StatusCodes.Status400BadRequest
-            );
+                detail: "A ocorrência e a unidade de resgate devem possuir identificadores maiores que zero.",
+                statusCode: StatusCodes.Status400BadRequest);
         }
 
+        if (!TryGetInstitutionalUserId(user, out var regulatorUserId))
+        {
+            return InvalidInstitutionalIdentity();
+        }
+
+        try
+        {
+            var dispatch = await service.CreateAsync(request, regulatorUserId, cancellationToken);
+            return Results.Json(dispatch, statusCode: StatusCodes.Status201Created);
+        }
+        catch (KeyNotFoundException)
+        {
+            return Results.Problem(
+                title: "Registro não encontrado.",
+                detail: "A ocorrência ou a unidade de resgate informada não foi encontrada.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return ConcurrencyConflict();
+        }
+        catch (InvalidOperationException)
+        {
+            return Results.Problem(
+                title: "Despacho não permitido.",
+                detail: "Verifique a decisão regulatória, o status da ocorrência e a disponibilidade da unidade.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.Problem(
+                title: "Dados inválidos.",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
+
+    private static async Task<IResult> AcceptAsync(
+        long id,
+        ClaimsPrincipal user,
+        IncidentDispatchCommandService service,
+        CancellationToken cancellationToken)
+    {
+        if (id <= 0)
+        {
+            return Results.Problem(
+                title: "Identificador inválido.",
+                detail: "O despacho deve possuir identificador maior que zero.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (!TryGetInstitutionalUserId(user, out var responderUserId))
+        {
+            return InvalidInstitutionalIdentity();
+        }
+
+        try
+        {
+            var dispatch = await service.AcceptAsync(id, responderUserId, cancellationToken);
+            return Results.Ok(dispatch);
+        }
+        catch (KeyNotFoundException)
+        {
+            return Results.Problem(
+                title: "Despacho não encontrado.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Results.Problem(
+                title: "Unidade não autorizada.",
+                detail: "O socorrista não possui vínculo ativo com a unidade do despacho.",
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return ConcurrencyConflict();
+        }
+        catch (InvalidOperationException)
+        {
+            return Results.Problem(
+                title: "Transição de despacho inválida.",
+                detail: "O despacho não pode ser aceito no estado atual ou já pertence a outro responsável.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.Problem(
+                title: "Dados inválidos.",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
+
+    private static bool TryGetInstitutionalUserId(ClaimsPrincipal user, out long userId)
+    {
         var subject = user.FindFirst("sub")?.Value;
         var userIdClaim = user.FindFirst("userId")?.Value;
 
@@ -81,82 +178,32 @@ public static class IncidentDispatchController
             userIdClaim,
             NumberStyles.None,
             CultureInfo.InvariantCulture,
-            out var regulatorUserId
-        );
+            out userId);
 
         var hasNumericSubject = long.TryParse(
             subject,
             NumberStyles.None,
             CultureInfo.InvariantCulture,
-            out var subjectId
-        );
+            out var subjectId);
 
-        if (string.IsNullOrWhiteSpace(subject) ||
-            !validUserId ||
-            regulatorUserId <= 0 ||
-            (hasNumericSubject &&
-             subjectId != regulatorUserId))
-        {
-            return Results.Problem(
-                title: "Identidade institucional inválida.",
-                detail:
-                    "O token autenticado não contém uma " +
-                    "identidade institucional válida.",
-                statusCode: StatusCodes.Status403Forbidden
-            );
-        }
+        return !string.IsNullOrWhiteSpace(subject) &&
+               validUserId && userId > 0 &&
+               (!hasNumericSubject || subjectId == userId);
+    }
 
-        try
-        {
-            var dispatch = await service.CreateAsync(
-                request,
-                regulatorUserId,
-                cancellationToken
-            );
+    private static IResult InvalidInstitutionalIdentity()
+    {
+        return Results.Problem(
+            title: "Identidade institucional inválida.",
+            detail: "O token autenticado não contém uma identidade institucional válida.",
+            statusCode: StatusCodes.Status403Forbidden);
+    }
 
-            return Results.Json(
-                dispatch,
-                statusCode: StatusCodes.Status201Created
-            );
-        }
-        catch (KeyNotFoundException)
-        {
-            return Results.Problem(
-                title: "Registro não encontrado.",
-                detail:
-                    "A ocorrência ou a unidade de resgate " +
-                    "informada não foi encontrada.",
-                statusCode: StatusCodes.Status404NotFound
-            );
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            return Results.Problem(
-                title: "Conflito de concorrência.",
-                detail:
-                    "Os dados foram modificados por outra " +
-                    "operação. Consulte o estado atualizado.",
-                statusCode: StatusCodes.Status409Conflict
-            );
-        }
-        catch (InvalidOperationException)
-        {
-            return Results.Problem(
-                title: "Despacho não permitido.",
-                detail:
-                    "Verifique a decisão regulatória, " +
-                    "o status da ocorrência e a " +
-                    "disponibilidade da unidade.",
-                statusCode: StatusCodes.Status409Conflict
-            );
-        }
-        catch (ArgumentException exception)
-        {
-            return Results.Problem(
-                title: "Dados inválidos.",
-                detail: exception.Message,
-                statusCode: StatusCodes.Status400BadRequest
-            );
-        }
+    private static IResult ConcurrencyConflict()
+    {
+        return Results.Problem(
+            title: "Conflito de concorrência.",
+            detail: "Os dados foram modificados por outra operação. Consulte o estado atualizado.",
+            statusCode: StatusCodes.Status409Conflict);
     }
 }
