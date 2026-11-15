@@ -21,6 +21,24 @@ public class RescueUnitRepository : IRescueUnitRepository
                 cancellationToken
             );
     }
+    
+    
+    public async Task<RescueUnit?> GetTrackedByIdAsync(
+        long id,
+        CancellationToken cancellationToken = default)
+    {
+        if (id <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(id));
+        }
+
+        return await _context.Set<RescueUnit>()
+            .AsTracking()
+            .FirstOrDefaultAsync(
+                unit => unit.Id == id,
+                cancellationToken);
+    }
+
 
     public async Task<IReadOnlyList<RescueUnit>> GetPagedAsync(
         int page,
