@@ -771,6 +771,254 @@ public async Task CreateAsync_ShouldRejectInvalidIncidentStatus()
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => fixture.Service.ResolveAsync(DispatchId, 0));
     }
+    
+    [Fact]
+    public async Task CancelAsync_ShouldCloseIncidentReleaseUnitAndPublishCancelled()
+    {
+        var incident = CreateDispatchedIncident();
+        var unit = CreateBusyUnit();
+        var dispatch = CreateAcceptedDispatch();
+
+        var fixture = new Fixture(incident, null, unit, dispatch);
+
+        var result = await fixture.Service.CancelAsync(
+            DispatchId,
+            RegulatorUserId,
+            "Atendimento cancelado pelo regulador.");
+
+        Assert.Equal(DispatchStatus.CANCELLED, result.Status);
+        Assert.Equal(2L, result.Version);
+        Assert.NotNull(dispatch.CancelledAt);
+
+        Assert.Equal(RegulationStatus.CLOSED, incident.RegulationStatus);
+        Assert.Equal(5L, incident.PublicStatusVersion);
+
+        Assert.Equal(
+            UnitOperationalStatus.AVAILABLE,
+            unit.OperationalStatus);
+
+        Assert.NotNull(fixture.CreatedHistory);
+        Assert.Equal(
+            DispatchStatus.ACCEPTED,
+            fixture.CreatedHistory.PreviousStatus);
+        Assert.Equal(
+            DispatchStatus.CANCELLED,
+            fixture.CreatedHistory.NewStatus);
+        Assert.Equal(
+            DispatchActorRole.REGULATOR,
+            fixture.CreatedHistory.ChangedByRole);
+        Assert.Equal(
+            RegulatorUserId,
+            fixture.CreatedHistory.ChangedByUserId);
+
+        fixture.Outbox.Verify(outbox => outbox.EnqueueAsync(
+            $"evt-dispatch-{JavaIncidentId}-5",
+            "incident.status.changed.v1",
+            "incident.status.changed.v1",
+            It.Is<string>(payload =>
+                payload.Contains("\"status\":\"CANCELLED\"") &&
+                payload.Contains("\"version\":5") &&
+                payload.Contains($"\"incidentId\":{JavaIncidentId}")),
+            It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        fixture.Transaction.Verify(transaction =>
+            transaction.ExecuteAsync(
+                It.IsAny<Func<CancellationToken,
+                    Task<IncidentDispatchResponse>>>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task CancelAsync_ShouldBeIdempotent()
+    {
+        var incident = CreateDispatchedIncident();
+        var unit = CreateBusyUnit();
+
+        var fixture = new Fixture(
+            incident,
+            null,
+            unit,
+            CreateAcceptedDispatch());
+
+        await fixture.Service.CancelAsync(
+            DispatchId,
+            RegulatorUserId,
+            "Cancelamento institucional.");
+
+        var versionAfterFirst = unit.Version;
+
+        var repeated = await fixture.Service.CancelAsync(
+            DispatchId,
+            RegulatorUserId,
+            "Cancelamento institucional.");
+
+        Assert.Equal(DispatchStatus.CANCELLED, repeated.Status);
+        Assert.Equal(2L, repeated.Version);
+        Assert.Equal(5L, incident.PublicStatusVersion);
+        Assert.Equal(versionAfterFirst, unit.Version);
+
+        fixture.Dispatches.Verify(repository =>
+            repository.AddHistoryAsync(
+                It.IsAny<DispatchStatusHistory>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        fixture.Outbox.Verify(outbox => outbox.EnqueueAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task CancelAsync_ShouldRejectResolvedDispatch()
+    {
+        var dispatch = CreateOnSiteDispatch();
+        dispatch.Resolve(DateTime.UtcNow);
+
+        var fixture = new Fixture(null, null, null, dispatch);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.CancelAsync(
+                DispatchId,
+                RegulatorUserId,
+                "Tentativa de cancelamento."));
+
+        Assert.Equal(DispatchStatus.RESOLVED, dispatch.Status);
+
+        fixture.Outbox.Verify(outbox => outbox.EnqueueAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CancelAsync_ShouldRejectMissingDispatch()
+    {
+        var fixture = new Fixture(null, null, null);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => fixture.Service.CancelAsync(
+                DispatchId,
+                RegulatorUserId,
+                "Cancelamento de despacho inexistente."));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CancelAsync_ShouldRejectInvalidReason(string? reason)
+    {
+        var fixture = new Fixture(null, null, null);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => fixture.Service.CancelAsync(
+                DispatchId,
+                RegulatorUserId,
+                reason));
+
+        fixture.Transaction.Verify(transaction =>
+            transaction.ExecuteAsync(
+                It.IsAny<Func<CancellationToken,
+                    Task<IncidentDispatchResponse>>>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CancelAsync_ShouldRejectReasonAboveMaximumLength()
+    {
+        var fixture = new Fixture(null, null, null);
+
+        var reason = new string('A', 501);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => fixture.Service.CancelAsync(
+                DispatchId,
+                RegulatorUserId,
+                reason));
+    }
+
+    [Fact]
+    public async Task CancelAsync_ShouldPreserveOutOfServiceUnit()
+    {
+        var incident = CreateDispatchedIncident();
+        var unit = CreateBusyUnit();
+
+        unit.MarkOutOfService(DateTime.UtcNow.AddMinutes(-1));
+
+        var fixture = new Fixture(
+            incident,
+            null,
+            unit,
+            CreateAcceptedDispatch());
+
+        var result = await fixture.Service.CancelAsync(
+            DispatchId,
+            RegulatorUserId,
+            "Cancelamento por indisponibilidade da unidade.");
+
+        Assert.Equal(DispatchStatus.CANCELLED, result.Status);
+        Assert.Equal(RegulationStatus.CLOSED, incident.RegulationStatus);
+
+        Assert.Equal(
+            UnitOperationalStatus.OUT_OF_SERVICE,
+            unit.OperationalStatus);
+    }
+
+    [Fact]
+    public async Task CancelAsync_ShouldRejectIncidentNotDispatched()
+    {
+        var incident = CreateIncident();
+
+        var fixture = new Fixture(
+            incident,
+            null,
+            CreateBusyUnit(),
+            CreateAcceptedDispatch());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.CancelAsync(
+                DispatchId,
+                RegulatorUserId,
+                "Cancelamento inválido."));
+
+        Assert.Equal(
+            RegulationStatus.AWAITING_DISPATCH,
+            incident.RegulationStatus);
+
+        fixture.Outbox.Verify(outbox => outbox.EnqueueAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CancelAsync_ShouldRejectMissingRescueUnit()
+    {
+        var fixture = new Fixture(
+            CreateDispatchedIncident(),
+            null,
+            null,
+            CreateAcceptedDispatch());
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => fixture.Service.CancelAsync(
+                DispatchId,
+                RegulatorUserId,
+                "Cancelamento institucional."));
+    }
 
     private static IncidentReference CreateOnSiteIncident()
     {
