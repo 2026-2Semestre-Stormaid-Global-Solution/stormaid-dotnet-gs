@@ -626,4 +626,105 @@ public sealed class IncidentDispatchCommandService
             },
             cancellationToken);
     }
+    
+    
+public async Task<IncidentDispatchResponse> CancelAsync(
+    long dispatchId,
+    long regulatorUserId,
+    string? reason,
+    CancellationToken cancellationToken = default)
+{
+    if (dispatchId <= 0)
+        throw new ArgumentOutOfRangeException(nameof(dispatchId));
+
+    if (regulatorUserId <= 0)
+        throw new ArgumentOutOfRangeException(nameof(regulatorUserId));
+
+    if (string.IsNullOrWhiteSpace(reason) || reason.Trim().Length > 500)
+        throw new ArgumentException(
+            "A justificativa deve conter entre 1 e 500 caracteres.",
+            nameof(reason));
+
+    var normalizedReason = reason.Trim();
+
+    return await _transactionExecutor.ExecuteAsync(
+        async token =>
+        {
+            var dispatch = await _dispatchRepository
+                .GetTrackedByIdAsync(dispatchId, token)
+                ?? throw new KeyNotFoundException(
+                    "Dispatch was not found.");
+
+            if (dispatch.Status == DispatchStatus.CANCELLED)
+                return IncidentDispatchResponse.FromEntity(dispatch);
+
+            if (dispatch.Status == DispatchStatus.RESOLVED)
+                throw new InvalidOperationException(
+                    "Resolved dispatches cannot be cancelled.");
+
+            var incident = await _incidentRepository
+                .GetTrackedByIdAsync(
+                    dispatch.IncidentReferenceId, token)
+                ?? throw new KeyNotFoundException(
+                    "Incident was not found.");
+
+            if (incident.RegulationStatus != RegulationStatus.DISPATCHED)
+                throw new InvalidOperationException(
+                    "Incident is not dispatched.");
+
+            var unit = await _rescueUnitRepository
+                .GetTrackedByIdAsync(dispatch.RescueUnitId, token)
+                ?? throw new KeyNotFoundException(
+                    "Rescue unit was not found.");
+
+            var utcNow = DateTime.UtcNow;
+            var previousStatus = dispatch.Status;
+
+            dispatch.Cancel(utcNow);
+            incident.Close(utcNow);
+            incident.AdvancePublicStatusVersion(utcNow);
+
+            if (unit.Active &&
+                unit.OperationalStatus == UnitOperationalStatus.BUSY)
+            {
+                unit.MarkAsAvailable(utcNow);
+            }
+
+            var history = new DispatchStatusHistory(
+                incidentDispatchId: dispatch.Id,
+                previousStatus: previousStatus,
+                newStatus: DispatchStatus.CANCELLED,
+                changedByUserId: regulatorUserId,
+                changedByRole: DispatchActorRole.REGULATOR,
+                note: normalizedReason,
+                utcNow: utcNow);
+
+            await _dispatchRepository.AddHistoryAsync(
+                history, token);
+
+            var eventId =
+                $"evt-dispatch-{incident.JavaIncidentId}-{incident.PublicStatusVersion}";
+
+            var payload = JsonSerializer.Serialize(new
+            {
+                eventType = StatusChangedEventType,
+                eventId,
+                incidentId = incident.JavaIncidentId,
+                status = DispatchStatus.CANCELLED.ToString(),
+                version = incident.PublicStatusVersion,
+                changedAt = utcNow
+            });
+
+            await _outbox.EnqueueAsync(
+                eventId: eventId,
+                eventType: StatusChangedEventType,
+                routingKey: StatusChangedEventType,
+                payload: payload,
+                cancellationToken: token);
+
+            return IncidentDispatchResponse.FromEntity(dispatch);
+        },
+        cancellationToken);
+}
+
 }
