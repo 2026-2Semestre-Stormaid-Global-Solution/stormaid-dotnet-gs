@@ -2,6 +2,7 @@ using Stormaid.Application.DTOs.Response;
 using Stormaid.Application.Services;
 using Stormaid.Application.DTOs.Request;
 using Stormaid.Application.Exceptions;
+using Stormaid.API.Hateoas;
 
 namespace Stormaid.API.Controllers;
 /// <summary>
@@ -99,6 +100,9 @@ public static class RescueUnitController
     /// <param name="cancellationToken">
     /// Token de cancelamento da requisição.
     /// </param>
+    /// <param name="includeLinks">
+    /// Indica se a resposta deve incluir links HATEOAS.
+    /// </param>
     /// <returns>
     /// Dados da unidade de resgate solicitada.
     /// </returns>
@@ -116,6 +120,7 @@ public static class RescueUnitController
     /// </response>
     private static async Task<IResult> GetByIdAsync(
         long id,
+        bool? includeLinks,
         RescueUnitQueryService service,
         CancellationToken cancellationToken)
     {
@@ -129,10 +134,38 @@ public static class RescueUnitController
 
         var unit = await service.GetByIdAsync(id, cancellationToken);
 
-        return unit is null ? Results.Problem(
+        if (unit is null)
+        {
+            return Results.Problem(
                 title: "Unidade não encontrada.",
-                statusCode: StatusCodes.Status404NotFound)
-            : Results.Ok(unit);
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (includeLinks != true)
+        {
+            return Results.Ok(unit);
+        }
+
+        var links = new List<HateoasLink>
+        {
+            new(
+                "self",
+                $"/api/v1/rescue-units/{unit.Id}",
+                "GET"
+            ),
+            new(
+                "collection",
+                "/api/v1/rescue-units",
+                "GET"
+            )
+        };
+
+        var response = new HateoasResource<RescueUnitResponse>(
+            unit,
+            links
+        );
+
+        return Results.Ok(response);
     }
     
     /// <summary>
