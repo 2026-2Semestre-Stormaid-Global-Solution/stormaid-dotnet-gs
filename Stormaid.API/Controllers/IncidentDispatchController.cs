@@ -1,9 +1,11 @@
 using System.Globalization;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Stormaid.Application.DTOs.Request;
 using Stormaid.Application.DTOs.Response;
 using Stormaid.Application.Services;
+using Stormaid.API.Hateoas;
 
 namespace Stormaid.API.Controllers;
 
@@ -122,7 +124,8 @@ public static class IncidentDispatchController
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
         return app;
     }
@@ -130,6 +133,7 @@ public static class IncidentDispatchController
     private static async Task<IResult> CreateAsync(
         CreateIncidentDispatchRequest request,
         ClaimsPrincipal user,
+        [FromQuery] bool? includeLinks,
         IncidentDispatchCommandService service,
         CancellationToken cancellationToken)
     {
@@ -149,7 +153,14 @@ public static class IncidentDispatchController
         try
         {
             var dispatch = await service.CreateAsync(request, regulatorUserId, cancellationToken);
-            return Results.Json(dispatch, statusCode: StatusCodes.Status201Created);
+
+            return includeLinks == true
+                ? Results.Json(
+                    IncidentDispatchHateoasLinks.Build(dispatch, user),
+                    statusCode: StatusCodes.Status201Created)
+                : Results.Json(
+                    dispatch,
+                    statusCode: StatusCodes.Status201Created);
         }
         catch (KeyNotFoundException)
         {
@@ -455,12 +466,12 @@ public static class IncidentDispatchController
             detail: "Os dados foram modificados por outra operação. Consulte o estado atualizado.",
             statusCode: StatusCodes.Status409Conflict);
     }
-    
-    
+
     private static async Task<IResult> CancelAsync(
         long id,
         CancelIncidentDispatchRequest request,
         ClaimsPrincipal user,
+        [FromQuery] bool? includeLinks,
         IncidentDispatchCommandService service,
         CancellationToken cancellationToken)
     {
@@ -482,7 +493,9 @@ public static class IncidentDispatchController
                 request.Reason,
                 cancellationToken);
 
-            return Results.Ok(result);
+            return includeLinks == true
+                ? Results.Ok(IncidentDispatchHateoasLinks.Build(result, user))
+                : Results.Ok(result);
         }
         catch (KeyNotFoundException)
         {
@@ -509,5 +522,4 @@ public static class IncidentDispatchController
                 statusCode: StatusCodes.Status400BadRequest);
         }
     }
-
 }
