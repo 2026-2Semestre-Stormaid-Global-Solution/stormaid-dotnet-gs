@@ -108,6 +108,21 @@ public static class IncidentDispatchController
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status429TooManyRequests);
+        
+        group.MapPost("/{id:long}/cancel", CancelAsync)
+            .WithName("CancelIncidentDispatch")
+            .WithSummary("Cancelar atendimento de emergência")
+            .WithDescription(
+                "Permite ao regulador cancelar um atendimento, " +
+                "registrando justificativa, histórico e evento de integração.")
+            .RequireAuthorization(policy =>
+                policy.RequireRole("REGULATOR"))
+            .Produces<IncidentDispatchResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         return app;
     }
@@ -440,4 +455,59 @@ public static class IncidentDispatchController
             detail: "Os dados foram modificados por outra operação. Consulte o estado atualizado.",
             statusCode: StatusCodes.Status409Conflict);
     }
+    
+    
+    private static async Task<IResult> CancelAsync(
+        long id,
+        CancelIncidentDispatchRequest request,
+        ClaimsPrincipal user,
+        IncidentDispatchCommandService service,
+        CancellationToken cancellationToken)
+    {
+        if (id <= 0)
+        {
+            return Results.Problem(
+                title: "Identificador inválido.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (!TryGetInstitutionalUserId(user, out var regulatorUserId))
+            return InvalidInstitutionalIdentity();
+
+        try
+        {
+            var result = await service.CancelAsync(
+                id,
+                regulatorUserId,
+                request.Reason,
+                cancellationToken);
+
+            return Results.Ok(result);
+        }
+        catch (KeyNotFoundException)
+        {
+            return Results.Problem(
+                title: "Registro não encontrado.",
+                statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return ConcurrencyConflict();
+        }
+        catch (InvalidOperationException)
+        {
+            return Results.Problem(
+                title: "Cancelamento não permitido.",
+                detail: "O atendimento não pode ser cancelado no estado atual.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.Problem(
+                title: "Dados inválidos.",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
+
 }
