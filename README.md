@@ -35,9 +35,11 @@ A API .NET é responsável pela **gestão das ocorrências recebidas da API Java
 - [🔄 Fluxos e Estados](#-fluxos-e-estados)
 - [📄 HTTP Status Codes](#-http-status-codes)
 - [🛡️ Rate Limiting e Segurança](#️-rate-limiting-e-segurança)
+- [🔗 HATEOAS](#-hateoas)
 - [📘 Swagger / OpenAPI](#-swagger--openapi)
 - [🩺 Health Checks](#-health-checks)
 - [📝 Logs com Serilog](#-logs-com-serilog)
+- [📊 Observabilidade com OpenTelemetry e Prometheus](#-observabilidade-com-opentelemetry-e-prometheus)
 - [🗄️ Banco de Dados e Migrations](#️-banco-de-dados-e-migrations)
 - [⚙️ Como Executar](#️-como-executar)
 - [🧪 Testes](#-testes)
@@ -130,7 +132,8 @@ A solução .NET foi organizada com base em princípios de **Clean Architecture*
 Stormaid.API
 → Minimal API / Endpoint Route Handlers
 → Controllers (agrupadores de rotas)
-→ Configurations (JWT, OpenAPI, Rate Limiting e Health Checks)
+→ Configurations (JWT, OpenAPI, Rate Limiting, Health Checks e ObservabilityConfiguration)
+→ Hateoas (HateoasLink, HateoasResource e IncidentDispatchHateoasLinks)
 → Messaging (consumidor RabbitMQ e publicador da Outbox)
 → Health
 → Program.cs
@@ -204,6 +207,7 @@ Stormaid/
 │   ├── Configurations/
 │   │   ├── HealthCheckConfiguration.cs
 │   │   ├── JwtConfiguration.cs
+│   │   ├── ObservabilityConfiguration.cs
 │   │   ├── OpenApiConfiguration.cs
 │   │   └── RateLimitingConfiguration.cs
 │   ├── Controllers/
@@ -212,6 +216,10 @@ Stormaid/
 │   │   ├── RegulationController.cs
 │   │   └── RescueUnitController.cs
 │   ├── Health/
+│   ├── Hateoas/
+│   │   ├── HateoasLink.cs
+│   │   ├── HateoasResource.cs
+│   │   └── IncidentDispatchHateoasLinks.cs
 │   ├── Messaging/
 │   │   ├── IncidentCreatedConsumer.cs
 │   │   └── OutboxPublisherBackgroundService.cs
@@ -277,6 +285,9 @@ Stormaid/
 | **Transactional Outbox** | Persistência dos eventos antes da publicação |
 | **OpenAPI 3.1 / NSwag Swagger UI** | Especificação e documentação interativa |
 | **Serilog** | Logs estruturados de aplicação e requisições |
+| **OpenTelemetry** | Traces de requisições ASP.NET Core e chamadas HTTP, métricas HTTP e exportação OTLP opcional de traces |
+| **Prometheus Exporter** | Métricas no endpoint `/metrics` habilitado apenas no ambiente Development |
+| **HATEOAS** | Links de navegação opcionais nas respostas de unidades e despachos |
 | **Health Checks** | Monitoramento da aplicação e conectividade Oracle |
 | **Rate Limiting** | Proteção das rotas contra excesso de requisições |
 | **NUnit** | Testes de entidades de domínio |
@@ -546,9 +557,11 @@ O padrão reduz o risco de perder eventos caso a alteração no banco seja concl
 
 | Ambiente | Situação |
 | --- | --- |
-| **Local (Java + .NET + RabbitMQ + Oracle)** | Fluxo ponta a ponta validado |
-| **Render (.NET + Oracle via HTTP)** | Publicado e validado |
-| **Render (RabbitMQ / Outbox em funcionamento contínuo)** | **Não habilitado na configuração atual** |
+| **Laboratório RabbitMQ isolado** | Publicador real do .NET e comportamento de ACK/NACK/DLQ testados no broker local, sem Oracle |
+| **Consumidor de status Java (testes automatizados)** | Casos de `CANCELLED` e versionamento aprovados com dependências simuladas |
+| **Fluxo ponta a ponta Java → RabbitMQ → .NET → Java** | Não comprovado integralmente nesta rodada de testes |
+| **Render (API .NET via HTTP)** | Deploy bem-sucedido e aplicação Live, conforme painel de 16/11/2026 |
+| **Render (RabbitMQ / Outbox em funcionamento contínuo)** | Não foi demonstrado como habilitado e validado |
 
 No Render, as configurações utilizadas na validação HTTP foram `RabbitMQ__Enabled=false` e `OutboxPublisher__Enabled=false`. Para habilitar a mensageria em produção será necessário provisionar um broker acessível, filas, exchange, bindings e credenciais seguras.
 
@@ -647,6 +660,7 @@ Instituições reconhecidas: `FIRE_DEPARTMENT`, `EMERGENCY_MEDICAL_SERVICE`, `MI
 | `POST` | `/api/v1/dispatches/{id}/start-route` | Registrar início do deslocamento | `RESPONDER` |
 | `POST` | `/api/v1/dispatches/{id}/arrive` | Registrar chegada ao local | `RESPONDER` |
 | `POST` | `/api/v1/dispatches/{id}/resolve` | Concluir atendimento | `RESPONDER` |
+| `POST` | `/api/v1/dispatches/{id}/cancel` | Cancelar despacho com justificativa | `REGULATOR` |
 
 **Exemplo de criação de despacho:**
 
@@ -665,6 +679,22 @@ Content-Type: application/json
 ```
 
 As transições dependem do estado atual do despacho e da identidade do socorrista. Operações incompatíveis podem retornar `409 Conflict`.
+
+**Cancelamento de despacho (implementado):**
+
+```http
+POST /api/v1/dispatches/13/cancel
+Authorization: Bearer <JWT_REGULATOR>
+Content-Type: application/json
+```
+
+```json
+{
+  "reason": "Cancelamento institucional devido à mudança das condições de atendimento."
+}
+```
+
+O regulador pode cancelar um despacho em `PENDING_ACCEPTANCE`, `ACCEPTED`, `EN_ROUTE` ou `ON_SITE`. O serviço registra `CANCELLED`, encerra a regulação da ocorrência, libera a unidade se estiver ativa e ocupada, registra o histórico e cria um evento `incident.status.changed.v1` na Outbox, tudo dentro da operação transacional. Despachos `RESOLVED` não podem ser cancelados (`409`); um despacho já `CANCELLED` retorna seu estado existente. A justificativa precisa ter de 1 a 500 caracteres.
 
 ### Acompanhamento do Cidadão
 
@@ -695,7 +725,7 @@ A rota não permite que um cidadão consulte uma ocorrência de outro usuário.
 | `GET` | `/openapi/v1.json` | Documento OpenAPI, quando habilitado |
 | `GET` | `/swagger/index.html` | Interface Swagger, quando habilitada |
 
-> Os endpoints de Health Checks e a raiz são rotas de infraestrutura; não fazem parte das 13 operações de negócio descritas acima.
+> Os endpoints de Health Checks e a raiz são rotas de infraestrutura; não fazem parte das 14 operações de negócio descritas acima.
 
 ---
 
@@ -730,7 +760,7 @@ ON_SITE
 RESOLVED
 ```
 
-O domínio também possui o estado `CANCELLED`, mas este repositório **não expõe um endpoint HTTP de cancelamento do despacho**. Não se deve confundir a existência do enum com uma operação pública implementada.
+O despacho também pode transicionar para `CANCELLED` por `POST /api/v1/dispatches/{id}/cancel`, se ainda não estiver concluído. Essa operação é exclusiva do perfil `REGULATOR` e emite o evento público `CANCELLED` pela Outbox.
 
 ### Atualização do estado público no Java
 
@@ -780,6 +810,24 @@ A política `InstitutionalApi` é aplicada às rotas de negócio e utiliza um **
 - Cabeçalho `Retry-After` quando o tempo de espera puder ser informado.
 
 Além da limitação de tráfego, são aplicadas validações de identidade JWT, perfil, titularidade das ocorrências, IDs positivos e transições permitidas pelo domínio.
+
+---
+
+## 🔗 HATEOAS
+
+A API possui suporte **opcional** a HATEOAS para permitir que o cliente descubra links relacionados ao recurso retornado. A implementação utiliza `HateoasLink` (`rel`, `href` e `method`), `HateoasResource<T>` (`data` e `links`) e `IncidentDispatchHateoasLinks`.
+
+A navegação é habilitada exclusivamente por `?includeLinks=true` nas operações implementadas:
+
+| Método | Endpoint | Links retornados |
+| --- | --- | --- |
+| `GET` | `/api/v1/rescue-units/{id}?includeLinks=true` | `self` e `collection` |
+| `POST` | `/api/v1/dispatches?includeLinks=true` | `rescue-unit` e, quando permitido, `cancel` |
+| `POST` | `/api/v1/dispatches/{id}/cancel?includeLinks=true` | `rescue-unit`; não oferece novo cancelamento após `CANCELLED` |
+
+O link `cancel` só aparece para usuário `REGULATOR` e despacho em estado cancelável (`PENDING_ACCEPTANCE`, `ACCEPTED`, `EN_ROUTE` ou `ON_SITE`). Sem `includeLinks=true` (ou usando `false`), o formato anterior das respostas é preservado.
+
+Os testes automatizados cobrem os links oferecidos conforme perfil e estado, o formato legado e os códigos HTTP das respostas.
 
 ---
 
@@ -879,7 +927,35 @@ Os níveis definidos em `appsettings.json` incluem `Information`, `Warning` e `E
 
 O sink configurado é **`Serilog.Sinks.Console`**, permitindo acompanhar a execução pelo terminal ou pelo painel de logs do Render.
 
-**Não há no projeto apresentado configuração de rotação diária de arquivos, OpenTelemetry ou endpoint Prometheus `/metrics`.**
+O Serilog continua responsável pelos logs estruturados no console. O projeto **também** implementa OpenTelemetry e Prometheus para observabilidade; esses componentes não substituem o Serilog.
+
+---
+
+## 📊 Observabilidade com OpenTelemetry e Prometheus
+
+A classe `Stormaid.API/Configurations/ObservabilityConfiguration.cs` registra a instrumentação em `AddStormaidObservability()`, chamada pelo `Program.cs`.
+
+| Recurso | Implementação |
+| --- | --- |
+| Identificação do serviço | Recurso OpenTelemetry com nome `Stormaid.API` |
+| Tracing | Instrumentação ASP.NET Core e `HttpClient` |
+| Métricas | Instrumentação ASP.NET Core e `HttpClient` |
+| Exportador Prometheus | `AddPrometheusExporter()` |
+| Exportação de traces por OTLP | **Opcional**, habilitada com `OpenTelemetry__ExportTracesToOtlp=true` |
+| Endpoint de scraping | `GET /metrics`, **somente em `Development`** |
+
+O tracing HTTP exclui `/metrics` para não produzir spans de scraping. O endpoint utiliza `DisableHttpMetrics()` e não exige JWT no ambiente de desenvolvimento.
+
+Exemplo de consulta **local**, sem conectar ao Oracle:
+
+```bash
+curl -i http://localhost:5283/health/live
+curl -i http://localhost:5283/metrics
+```
+
+Na validação local anterior, `/health/live` e `/metrics` responderam HTTP `200`; o endpoint de métricas retornou dados no formato Prometheus. Isso não comprova um coletor Prometheus externo nem exportação OTLP em execução.
+
+**Render / Production:** o `Program.cs` não mapeia `/metrics` em `Production`; por isso não se deve anunciar esse endpoint como público na URL do Render. A exportação de traces OTLP também permanece desabilitada se a opção não for explicitamente configurada.
 
 Credenciais, senhas e tokens JWT não devem ser incluídos nos registros de log.
 
@@ -983,7 +1059,7 @@ dotnet ef migrations script 0 BaselineExistingOracleSchema \
 4. Revisar o SQL gerado pelo EF antes de qualquer atualização;
 5. Somente então registrar a baseline no novo schema, se for necessário.
 
-> **Atenção:** **não** executar indiscriminadamente `dotnet ef database update` contra um banco vazio esperando que a baseline crie as tabelas de negócio; ela não faz isso. Também não executar migrations futuras sem conferir a compatibilidade de colunas, tipos, índices e restrições com o DDL físico existente. A verificação anterior confirmou a existência das dez tabelas e a quantidade de colunas, mas não constituiu auditoria completa de todos os objetos do banco.
+> **Atenção:** **não** executar indiscriminadamente `dotnet ef database update` contra um banco vazio esperando que a baseline crie as tabelas de negócio; ela não faz isso.
 
 ---
 
@@ -1103,7 +1179,7 @@ Stormaid.Domain.Tests/                 # NUnit
 tests/Stormaid.API.IntegrationTests/   # xUnit
 ├── Database/                          # Cenários com Oracle (execução controlada)
 ├── Endpoints/                         # HTTP, JWT, rate limiting e health
-├── Messaging/                         # Consumidor de eventos
+├── Messaging/                         # Consumidor e testes do RabbitMQ
 ├── Services/                          # Serviços e fluxos de aplicação
 ├── Factories/                         # WebApplicationFactory e fakes
 └── Helpers/                           # JWT de teste e utilitários
@@ -1114,12 +1190,15 @@ tests/Stormaid.API.IntegrationTests/   # xUnit
 - Validações e transições das entidades de domínio;
 - Criação e consulta de unidades de resgate;
 - Fila de regulação, análise institucional e decisões;
-- Criação e transições dos despachos operacionais;
+- Criação, transições e **cancelamento institucional** dos despachos;
+- Respostas HATEOAS opcionais em consulta de unidade, criação e cancelamento de despacho;
 - Autenticação e autorização JWT;
 - Restrição de acompanhamento à ocorrência do próprio cidadão;
 - Rate Limiting e respostas HTTP;
 - Health Checks;
 - Consumo e tratamento de eventos de ocorrência criada;
+- Publicação real com `RabbitMqOutboxPublisher`, incluindo confirmação de entrega e rejeição de mensagem sem rota;
+- ACK, NACK com requeue e NACK com Dead Letter Queue no broker local isolado;
 - Idempotência, controle de concorrência e cenários transacionais;
 - Testes de rollback com Oracle, quando habilitados.
 
@@ -1129,14 +1208,29 @@ tests/Stormaid.API.IntegrationTests/   # xUnit
 dotnet test Stormaid.sln
 ```
 
-### Resultado da execução registrada
+### Resultados de testes registrados
+
+**Execução integral anterior**, registrada antes dos últimos testes RabbitMQ adicionados:
 
 ```text
-Total:        320
-Aprovados:    312
+Total:        361
+Aprovados:    353
 Falhas:         0
 Ignorados:      8
 ```
+
+**Execuções isoladas realizadas posteriormente com RabbitMQ local real:**
+
+| Classe | Cenários | Resultado |
+| --- | --- | --- |
+| `RabbitMqOutboxPublisherIntegrationTests` | Mensagem persistente entregue e rejeição de mensagem sem rota | **2 aprovados, 0 falhas** |
+| `RabbitMqAckNackDlqIntegrationTests` | ACK, NACK com `requeue=true` e envio à DLQ com `requeue=false` | **3 aprovados, 0 falhas** |
+
+Os cinco testes foram executados com `STORMAID_RUN_RABBITMQ_TESTS=1`, contra o broker Docker de laboratório (AMQP na porta local `5673`). Não instanciam o fluxo de persistência Oracle. Com essa variável ausente ou diferente de `1`, são ignorados.
+
+As classes `IncidentDispatchCancelEndpointTests`, `IncidentDispatchHateoasEndpointTests` e `RescueUnitHateoasEndpointTests` verificam, respectivamente, autorização e respostas de cancelamento, links HATEOAS de despachos e navegação HATEOAS de unidades. Os testes HTTP usam dependências simuladas.
+
+**Não há nesta documentação uma nova execução consolidada da suíte inteira após esses cinco testes**; portanto, a soma dos resultados isolados não é apresentada como nova contagem geral.
 
 Os oito testes ignorados dependem de Oracle real e não são executados por padrão; nas classes correspondentes, é mencionada a variável:
 
@@ -1145,6 +1239,23 @@ STORMAID_RUN_ORACLE_TESTS=1
 ```
 
 > Execute testes que modificam dados ou validam transações **somente em um schema de testes isolado e com credenciais apropriadas**. Não habilite esses testes contra o banco compartilhado de produção ou avaliação sem revisar seu comportamento.
+
+### Executar somente testes de mensageria no broker local
+
+```bash
+export STORMAID_RUN_RABBITMQ_TESTS=1
+export STORMAID_RABBITMQ_USER="USUARIO_DO_BROKER_LOCAL"
+export STORMAID_RABBITMQ_PASSWORD="SENHA_DO_BROKER_LOCAL"
+
+dotnet test tests/Stormaid.API.IntegrationTests/Stormaid.API.IntegrationTests.csproj \
+  --filter "FullyQualifiedName~RabbitMqOutboxPublisherIntegrationTests|FullyQualifiedName~RabbitMqAckNackDlqIntegrationTests"
+
+unset STORMAID_RUN_RABBITMQ_TESTS
+unset STORMAID_RABBITMQ_USER
+unset STORMAID_RABBITMQ_PASSWORD
+```
+
+Esses testes exigem o broker de laboratório acessível em `127.0.0.1:5673` e não devem ser executados contra filas de produção. Os testes configuram exchanges e filas temporárias exclusivas para os cenários de confirmação, rejeição e dead lettering.
 
 Os testes HTTP utilizam `WebApplicationFactory` e dependências substituídas para isolar cenários. Códigos `400`, `401`, `403`, `404`, `409` e `503` nos logs de execução desses cenários podem ser **resultados esperados dos testes**, e não falhas da suíte.
 
@@ -1159,8 +1270,6 @@ dotnet test Stormaid.sln --collect:"XPlat Code Coverage"
 ```
 
 Os relatórios são gerados sob diretórios `TestResults` dos projetos de testes, normalmente em formato **Cobertura XML**.
-
-Não são informados percentuais de cobertura neste README porque **não foi fornecido um relatório consolidado de cobertura** para a versão analisada. O total de testes aprovados não deve ser confundido com percentual de cobertura.
 
 ---
 
@@ -1207,8 +1316,6 @@ http://localhost:10000/health/ready
 http://localhost:10000/swagger/index.html
 ```
 
-**Não inclua o arquivo `.env.docker` nos commits ou na imagem.** Se for utilizar RabbitMQ dentro de Docker, configure uma rede compartilhada e utilize o hostname alcançável pelo container, não `localhost` indiscriminadamente.
-
 ---
 
 ## 📌 Funcionalidades Implementadas
@@ -1225,18 +1332,20 @@ http://localhost:10000/swagger/index.html
 - [x] Listagem e consulta da regulação;
 - [x] Início de análise e registro de decisões;
 - [x] Cadastro e consulta de unidades de resgate;
-- [x] Criação e evolução de despachos operacionais;
+- [x] Criação, evolução e cancelamento institucional de despachos operacionais;
+- [x] HATEOAS opcional em consulta de unidade e operações de despachos;
 - [x] Histórico de mudanças de status dos despachos;
-- [x] Integração RabbitMQ e Outbox **validada localmente**;
+- [x] Publicador .NET, roteamento, ACK/NACK e DLQ **validados isoladamente no RabbitMQ local**;
 - [x] Controles de idempotência e concorrência;
 - [x] Rate Limiting por usuário/IP;
 - [x] OpenAPI e Swagger UI;
 - [x] Health Checks de aplicação e Oracle;
 - [x] Serilog com logs no console;
-- [x] Testes automatizados de domínio e integração;
+- [x] OpenTelemetry (traces e métricas) e exportação OTLP opcional de traces;
+- [x] Prometheus exporter e `/metrics` em `Development`;
+- [x] Testes automatizados de domínio, cancelamento, HATEOAS e integração RabbitMQ;
 - [x] Dockerfile multi-stage;
 - [x] Publicação HTTP da API no Render;
-- [ ] Mensageria RabbitMQ habilitada e validada no Render.
 
 ---
 
@@ -1254,7 +1363,7 @@ A API .NET do Storm Aid está publicada no **Render**.
 | ✅ **Readiness Oracle** | https://stormaid-dotnet-gs.onrender.com/health/ready |
 | 💻 **Repositório GitHub** | https://github.com/2026-2Semestre-Stormaid-Global-Solution/stormaid-dotnet-gs |
 
-A publicação utiliza **Docker**, **ASP.NET Core em ambiente Production**, **Oracle** para persistência e **Serilog** para registros no console do serviço.
+A publicação utiliza **Docker**, **ASP.NET Core em ambiente Production**, **Oracle** para persistência e **Serilog** para registros no console do serviço. O painel Render exibiu **Deploy succeeded | Live** para o commit `9b9696e` em 16/11/2026. Isso confirma o deploy, não a execução de fluxos de negócio com Oracle ou a mensageria ponta a ponta.
 
 ### Variáveis de ambiente principais do Render
 
@@ -1266,5 +1375,14 @@ RabbitMQ__Enabled=false
 OutboxPublisher__Enabled=false
 ```
 
-O plano de hospedagem pode realizar suspensão por inatividade, afetando o tempo de resposta da primeira chamada. A disponibilidade é acompanhada por `/health/live` e `/health/ready`.
+O plano de hospedagem pode realizar suspensão por inatividade, afetando o tempo de resposta da primeira chamada. `/health/live` verifica o processo da API; `/health/ready` verifica o Oracle e deve ser usado apenas em ambiente apropriado, sem sobrecarregar o banco compartilhado.
+
+---
+
+## ⚠️ Limitações e Pendências
+
+- Os testes isolados comprovam o publicador .NET e o comportamento do broker RabbitMQ; **não equivalem à comprovação do fluxo completo entre aplicações em produção**.
+- Os testes que dependem de Oracle real permanecem desabilitados por padrão; não foram reexecutados nesta etapa.
+- O endpoint `/metrics` é mapeado somente em `Development`. Não há evidência apresentada de scraping por servidor Prometheus externo ou de exportação OTLP ativa em produção.
+- A mensageria RabbitMQ e a publicação contínua da Outbox não foram demonstradas em funcionamento no ambiente Render desta entrega.
 
