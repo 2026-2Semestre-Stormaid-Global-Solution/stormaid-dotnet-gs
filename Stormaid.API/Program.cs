@@ -67,7 +67,8 @@ builder.Services.AddScoped<IncidentDispatchCommandService>();
 var app = builder.Build();
 
 var openApiEnabled =
-    app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("OpenApi:Enabled");
+    app.Environment.IsDevelopment() ||
+    app.Configuration.GetValue<bool>("OpenApi:Enabled");
 
 if (openApiEnabled)
 {
@@ -75,7 +76,8 @@ if (openApiEnabled)
 
     app.UseSwaggerUi(options =>
     {
-        options.DocumentPath = "/openapi/v1.json";
+        options.DocumentTitle = "Storm Aid | API de Regulação";
+        options.SwaggerRoutes.Add(new("Storm Aid API v1", "/openapi/v1.json"));
     });
 }
 
