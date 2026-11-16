@@ -30,24 +30,33 @@ public static class OpenApiConfiguration
                     {
                         Title = "Storm Aid | API de Regulação",
                         Version = "v1",
-                        Description = """
-                              ## Sobre o Storm Aid
-
-                              O Storm Aid é uma plataforma de apoio à gestão de emergências,
-                              conectando solicitações dos cidadãos a equipes institucionais
-                              responsáveis pela regulação e pelo resgate.
-
-                              ### Perfis de acesso
-
-                              - **CITIZEN:** consulta suas próprias ocorrências.
-                              - **REGULATOR:** analisa ocorrências e gerencia decisões institucionais.
-                              - **RESPONDER:** executa operações de atendimento e resgate.
-
-                              ### Autenticação
-
-                              Utilize o botão **Authorize** e informe o JWT emitido
-                              pela API Java do Storm Aid.
-                        """
+                        Description = string.Join("\n", new[]
+                        {
+                            "## Sobre o Storm Aid",
+                            "",
+                            "O Storm Aid é uma plataforma de apoio à gestão de emergências, " +
+                            "conectando solicitações dos cidadãos a equipes institucionais " +
+                            "responsáveis pela regulação e pelo resgate.",
+                            "",
+                            "### Funcionalidades",
+                            "",
+                            "- Regulação e acompanhamento de ocorrências.",
+                            "- Gerenciamento de unidades de resgate.",
+                            "- Criação e atualização de despachos operacionais.",
+                            "- Acompanhamento de ocorrências pelo cidadão.",
+                            "- Integração com a API Java por JWT e mensageria.",
+                            "",
+                            "### Perfis de acesso",
+                            "",
+                            "- **CITIZEN:** consulta suas próprias ocorrências.",
+                            "- **REGULATOR:** analisa ocorrências e gerencia decisões institucionais.",
+                            "- **RESPONDER:** executa operações de atendimento e resgate.",
+                            "",
+                            "### Autenticação",
+                            "",
+                            "Utilize o botão **Authorize** e informe o JWT emitido " +
+                            "pela API Java do Storm Aid."
+                        })
                     };
                     
                     document.Components ??= new OpenApiComponents();
