@@ -38,9 +38,10 @@ public static class DependencyInjection
             options.UseOracle(
                 connectionString,
                 oracleOptions =>
-                    oracleOptions.UseOracleSQLCompatibility(
-                        OracleSQLCompatibility.DatabaseVersion19
-                    )
+                {
+                    oracleOptions.UseOracleSQLCompatibility(OracleSQLCompatibility.DatabaseVersion19);
+                    oracleOptions.MigrationsHistoryTable("TB_STORMAID_EF_MIGRATIONS");
+                }
             );
         });
 
