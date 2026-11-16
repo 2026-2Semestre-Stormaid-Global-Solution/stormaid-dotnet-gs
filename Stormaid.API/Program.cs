@@ -8,6 +8,7 @@ using Stormaid.API.Health;
 using Stormaid.Infrastructure.Messaging;
 using Stormaid.API.Messaging;
 using Serilog;
+using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -56,6 +57,8 @@ builder.Services.AddStormaidRateLimiting();
 
 builder.Services.AddStormaidHealthChecks();
 
+builder.Services.AddStormaidObservability(builder.Configuration);
+
 builder.Services.AddScoped<RescueUnitQueryService>();
 builder.Services.AddScoped<RescueUnitCommandService>();
 builder.Services.AddScoped<IncidentCreatedEventService>();
@@ -95,6 +98,13 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseRateLimiter();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapPrometheusScrapingEndpoint()
+        .DisableHttpMetrics()
+        .AllowAnonymous();
+}
 
 
 app.MapGet("/", () => Results.Ok(new
